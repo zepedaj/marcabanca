@@ -1,1 +1,1 @@
-required_modules = ['py-cpuinfo']
+required_modules = ['py-cpuinfo', 'psutil']
