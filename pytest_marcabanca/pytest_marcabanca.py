@@ -72,19 +72,28 @@ class Profiling(object):
     # Hooks
     def pytest_sessionstart(self, session):
 
-        # Create root directory.
+        # Create root directory if necessary.
         self.root = self.root or self._default_root(session)
         try:
             self.root.mkdir()
         except py.error.EEXIST:
             pass
 
-        # Create json files.
+        # Create json files if necessary.
         self.filelock = FileLock(self.filelock_path)
         self.filelock.acquire(create=True)
+        for path in [self.runtimes_path,
+                     self.machines_path,
+                     self.python_envs_path]:
+            with open(path, 'a+'):
+                pass
 
     def pytest_sessionfinish(self, session, exitstatus):
         self.filelock.release()
+
+    def get_configuration(self):
+        with open(self.machines_path, 'rt+') as fo:
+            pass
 
     @pytest.hookimpl()
     def pytest_runtest_call(self, item):
