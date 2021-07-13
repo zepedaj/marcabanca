@@ -141,7 +141,7 @@ class ReferenceModel(_AbstractTypeSerializer):
     def __init__(self, reference_id, model_name='gamma'):
         """
         :param reference_id: An arbitrary identifier.
-        :param model_name: Any of the distributions in :mod:`scipy.stats`.
+        :param model_name: Any of the distributions in :mod:`scipy.stats` (e.g., 'gamma', 'norm', 'gengamma'). (The default is 'gamma'.)
         """
         #
         self.reference_id = reference_id
