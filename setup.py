@@ -24,7 +24,7 @@ setup(
     long_description=read('README.rst'),
     py_modules=['pytest_marcabanca'],
     python_requires='>=3.5',
-    install_requires=['pytest>=3.5.0', 'py-cpuinfo==8.0.0', 'psutil==5.8.0'],
+    install_requires=['pytest>=3.5.0', 'py-cpuinfo==8.0.0', 'psutil==5.8.0', 'scipy==1.7.0'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Framework :: Pytest',
