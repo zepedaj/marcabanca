@@ -78,6 +78,10 @@ class Manager:
 
         return exact, reference.compare(runtime)
 
+    def check_exists(self, test_node_id):
+        reference_id = self.build_reference_id(test_node_id)
+        return Reference.find(reference_id, self.data['reference_ids'])
+
     def create_reference(self, test_node_id, runtimes):
         reference_id = self.build_reference_id(test_node_id)
         posn, reference = Reference.find(reference_id, self.data['references'])
