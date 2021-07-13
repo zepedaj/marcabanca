@@ -1,4 +1,5 @@
 import pytest_marcabanca.utils as mdl
+import scipy.stats as scipy_stats
 import numpy.testing as npt
 import numpy as np
 import os.path as osp
@@ -49,53 +50,57 @@ class TestPythonConfiguration(TestCase):
 @contextmanager
 def get_references_manager():
     with TemporaryDirectory() as temp_dir:
-        rm = mdl.ReferencesManager(osp.join(temp_dir, 'machines.json'),
-                                   osp.join(temp_dir, 'python.json'),
-                                   osp.join(temp_dir, 'references.json'))
+        paths = [osp.join(temp_dir, 'machines.json'),
+                 osp.join(temp_dir, 'python.json'),
+                 osp.join(temp_dir, 'references.json')]
+        rm = mdl.Manager(*paths)
         yield rm
 
 
 class TestReferencesManager(TestCase):
-    def test_retrieve_or_store_this_env_config_id(self):
-        with get_references_manager() as rm:
-            env_id = rm.retrieve_or_store_this_env_config_id()
-            [self.assertTrue(
-                isinstance(env_id[_conf_type], str) and len(env_id[_conf_type]) == 32)
-             for _conf_type in ['machine_config_id', 'python_config_id']]
-
-            self.assertEqual(
-                mdl.MachineConfiguration(),
-                rm._retrieve_config_from_id('machine', env_id['machine_config_id']))
-
-            self.assertEqual(
-                mdl.PythonConfiguration(),
-                rm._retrieve_config_from_id('python', env_id['python_config_id']))
-
     def test_create_write_reference(self):
-        with get_references_manager() as rm:
-            self.assertEqual(rm.get_retrieved_references(), [])
-            rm.create_reference('my.module::MyClass::my_meth', np.linspace(0, 1.0, 10))
-            self.assertNotEqual(rm.get_retrieved_references(), [])
-            rm.write_references()
 
-            rm2 = mdl.ReferencesManager(
-                machine_configs_path=rm.config_paths['machine'],
-                python_configs_path=rm.config_paths['python'],
-                references_path=rm.config_paths['references'])
-
+        with get_references_manager() as mngr:
             self.assertEqual(
-                rm.get_retrieved_references(),
-                rm2.get_retrieved_references())
+                mngr.data, empty_data := {
+                    'machine_configs': [mdl.MachineConfiguration()],
+                    'python_configs': [mdl.PythonConfiguration()],
+                    'references': []})
+            for model_name in ['gamma', 'gengamma', 'norm']:
 
+                #
+                mngr.create_reference(
+                    test_node_id := 'my.module::MyClass::my_method',
+                    dist_domain := np.linspace(0, 1.0, 10),
+                    model_name=model_name)
 
-class Test_ProbModel(TestCase):
-    def test_serialize(self):
-        runtimes = np.linspace(0, 1.0, 10)
-        pm = mdl._ProbModel('gamma')
-        pm.fit(runtimes)
-        cdf = pm.cdf(runtimes)
+                # Check data has changed.
+                [self.assertEqual(len(mngr.data[_key]), 1) for _key in empty_data.keys()]
+                self.assertEqual(mngr.data['references'][0].reference_id,
+                                 {'machine_config_id': mngr.data['machine_configs'][0].config_id,
+                                  'python_config_id': mngr.data['python_configs'][0].config_id,
+                                  'test_node_id': test_node_id})
 
-        serializer = Serializer()
-        npt.assert_array_equal(
-            serializer.deserialize(serializer.serialize(pm)).cdf(runtimes),
-            cdf)
+                # Check serialization
+                mngr.write()
+
+                mngr2 = mdl.Manager(
+                    machine_configs_path=mngr.paths['machine_configs'],
+                    python_configs_path=mngr.paths['python_configs'],
+                    references_path=mngr.paths['references'])
+
+                self.assertEqual(
+                    mngr.data,
+                    mngr2.data)
+
+                # Check model distribs match specs.
+                ref = mngr.data['references'][0]
+                npt.assert_array_equal(
+                    getattr(scipy_stats, model_name)(*ref.model_args).cdf(dist_domain),
+                    ref.model.cdf(dist_domain))
+
+                # Check model distribs match between themselves
+                ref2 = mngr.data['references'][0]
+                npt.assert_array_equal(
+                    ref2.model.cdf(dist_domain),
+                    ref.model.cdf(dist_domain))
