@@ -5,6 +5,7 @@ import py
 import pglib.profiling as pgprof
 from py.path import local
 import pytest
+import rich
 
 
 def pytest_configure(config):
@@ -37,7 +38,7 @@ def pytest_addoption(parser):
         help="One of the models in scipy.stats.")
 
 
-Result = namedtuple('Result', ('test_node_id', 'rank'))
+Result = namedtuple('Result', ('test_node_id', 'exact', 'rank'))
 
 
 class PytestMarcabanca(object):
@@ -72,6 +73,21 @@ class PytestMarcabanca(object):
         if (self.create_references in ['overwrite', 'missing'] and
                 self.data_manager.created_new_reference):
             self.data_manager.write()
+            self.print_results()
+
+    def print_results(self):
+        from rich.console import Console
+        from rich.table import Table
+        table = Table('Marcabanca benchmarking results')
+        table.add_column('Test', justify='left')
+        table.add_column('Time rank', justify='right')
+        results = sorted(self.results, key=lambda r: r.rank, reverse=True)
+        for _result in results:
+            table.add_row(
+                _result.test_node_id, f'{_result.rank:.2%}',
+                style=('red' if _result.rank > 0.8 else 'green'))
+        console = Console()
+        console.print('\n', table)
 
     @pytest.hookimpl()
     def pytest_runtest_call(self, item):
@@ -100,7 +116,9 @@ class PytestMarcabanca(object):
                 self.data_manager.create_reference(item.nodeid, runtimes, self.model_name)
 
             # Compute runtime rank
-            rank = self.data_manager.rank_runtime(item.nodeid, test_timer.elapsed)
-            self.results.append(Result(
-                test_node_id=item.nodeid,
-                rank=rank))
+            exact, rank = self.data_manager.rank_runtime(item.nodeid, test_timer.elapsed)
+            if rank is not None:
+                self.results.append(Result(
+                    test_node_id=item.nodeid,
+                    rank=rank,
+                    exact=exact))
