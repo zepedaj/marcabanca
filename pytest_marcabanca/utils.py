@@ -1,4 +1,5 @@
 import uuid
+import os
 from pglib.rentemp import RenTempFiles
 import os.path as osp
 import abc
@@ -44,10 +45,6 @@ class Manager:
 
         self.serializer = _Serializer()
         self.created_new_reference = False
-
-        # Make sure the directory exist.
-        if not osp.isdir(root):
-            raise Exception(f'The specified root directory {root} does not exist.')
 
         # Load all data from the data files.
         serializer = _Serializer()
@@ -130,6 +127,13 @@ class Manager:
         """
         Write to disk all machine configurations, python configurations and references.
         """
+
+        # Create root directory if it does not exist.
+        try:
+            os.mkdir(self.root)
+        except FileExistsError:
+            pass
+
         # Attempts to be atomic, and protected from other competing processes.
         with FileLock(self.paths['lock']).with_acquire(create=True):
             data_keys = list(set(self.data) - {'lock'})
@@ -138,7 +142,7 @@ class Manager:
             with RenTempFiles(paths, overwrite=True) as tmp_paths:
                 # TODO: Possibility of corrupt data if a failure happens during the final move
                 # operation in RenTempFiles' __exit__ method. Notify of problem with an exception.
-                [self.serializer.dump(_data, _tmp_path.name)
+                [self.serializer.dump(_data, _tmp_path.name, indent=4)
                  for _data, _tmp_path in zip(data, tmp_paths)]
 
 
@@ -164,7 +168,8 @@ class ReferenceModel(_AbstractTypeSerializer):
 
     def fit(self, runtimes):
         self.runtimes = runtimes
-        self.model_args = self.model_type.fit(runtimes)
+        # Convert to list to make json file less verbose.
+        self.model_args = list(self.model_type.fit(runtimes))
         self.model = self.model_type(*self.model_args)
 
     @classmethod
@@ -289,18 +294,31 @@ class MachineConfiguration(_AbstractConfiguration):
     Represents the machine's hardware configuration.
     """
 
+    INCLUDE_MACHINE_ID_INFO = True
+
+    def __init__(self, *args, with_id=False, **kwargs):
+        super().__init__(*args, **kwargs)
+
     @classmethod
     def _get_this_specs(cls):
-        return {
-            'host': platform.node(),
-            'mac_address': cls.get_mac_address(),
+        out = {
             'cpuinfo': get_cpu_info(),
             'memory': psutil.virtual_memory().total
         }
+        if cls.INCLUDE_MACHINE_ID_INFO:
+            out.update({
+                'host': platform.node(),
+                'mac_address': cls.get_mac_address()})
+
+        return out
 
     @staticmethod
     def get_mac_address():
         return str(uuid.UUID(int=uuid.getnode()))
+
+    def _anonynoums_specs(self):
+        return {_k: _v for _k, _v in self.specs.items()
+                if _k not in ('host', 'mac_address')}
 
     def __eq__(self, other: 'MachineConfiguration'):
         """
@@ -308,7 +326,7 @@ class MachineConfiguration(_AbstractConfiguration):
         """
         if not isinstance(other, type(self)):
             return NotImplemented
-        return self.specs == other.specs
+        return self._anonynoums_specs() == other._anonynoums_specs()
 
 
 # Register type serializers

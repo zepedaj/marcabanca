@@ -51,23 +51,6 @@ class PytestMarcabanca(object):
         self.data_manager = None
         self.results = []
 
-    # JSON file paths.
-    @property
-    def references_path(self):
-        return self.root.join('references.json')
-
-    @property
-    def machine_configs_path(self):
-        return self.root.join('machine_configs.json')
-
-    @property
-    def python_configs_path(self):
-        return self.root.join('python_configs.json')
-
-    @property
-    def filelock_path(self):
-        return self.machine_configs_path
-
     @classmethod
     def _default_root(cls, session):
         return session.config.rootdir.join('marcabanca/')
@@ -83,10 +66,7 @@ class PytestMarcabanca(object):
             pass
 
         # Initialize data manager.
-        self.data_manager = Manager(
-            machine_configs_path=self.machine_configs_path,
-            python_configs_path=self.python_configs_path,
-            references_path=self.references_path)
+        self.data_manager = Manager(self.root)
 
     def pytest_sessionfinish(self, session, exitstatus):
         if (self.create_references in ['overwrite', 'missing'] and
