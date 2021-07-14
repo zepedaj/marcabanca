@@ -50,57 +50,65 @@ class TestPythonConfiguration(TestCase):
 @contextmanager
 def get_references_manager():
     with TemporaryDirectory() as temp_dir:
-        paths = [osp.join(temp_dir, 'machines.json'),
-                 osp.join(temp_dir, 'python.json'),
-                 osp.join(temp_dir, 'references.json')]
-        rm = mdl.Manager(*paths)
+        rm = mdl.Manager(temp_dir)
         yield rm
 
 
-class TestReferencesManager(TestCase):
+class TestManager(TestCase):
     def test_create_write_reference(self):
 
-        with get_references_manager() as mngr:
+        with get_references_manager() as mngr1:
             self.assertEqual(
-                mngr.data, empty_data := {
+                mngr1.data, empty_data := {
                     'machine_configs': [mdl.MachineConfiguration()],
                     'python_configs': [mdl.PythonConfiguration()],
                     'references': []})
             for model_name in ['gamma', 'gengamma', 'norm']:
 
                 #
-                mngr.create_reference(
+                mngr1.create_reference(
                     test_node_id := 'my.module::MyClass::my_method',
                     dist_domain := np.linspace(0, 1.0, 10),
                     model_name=model_name)
 
                 # Check data has changed.
-                [self.assertEqual(len(mngr.data[_key]), 1) for _key in empty_data.keys()]
-                self.assertEqual(mngr.data['references'][0].reference_id,
-                                 {'machine_config_id': mngr.data['machine_configs'][0].config_id,
-                                  'python_config_id': mngr.data['python_configs'][0].config_id,
+                [self.assertEqual(len(mngr1.data[_key]), 1) for _key in empty_data.keys()]
+                self.assertEqual(mngr1.data['references'][0].reference_id,
+                                 {'machine_config_id': mngr1.data['machine_configs'][0].config_id,
+                                  'python_config_id': mngr1.data['python_configs'][0].config_id,
                                   'test_node_id': test_node_id})
 
-                # Check serialization
-                mngr.write()
+                # Test check_exists
+                self.assertTrue(mngr1.check_reference_exists(test_node_id))
+                self.assertFalse(mngr1.check_reference_exists(test_node_id+'_missing'))
 
-                mngr2 = mdl.Manager(
-                    machine_configs_path=mngr.paths['machine_configs'],
-                    python_configs_path=mngr.paths['python_configs'],
-                    references_path=mngr.paths['references'])
+                # Check serialization
+                mngr1.write()
+
+                mngr2 = mdl.Manager(mngr1.root)
 
                 self.assertEqual(
-                    mngr.data,
+                    mngr1.data,
                     mngr2.data)
 
                 # Check model distribs match specs.
-                ref = mngr.data['references'][0]
+                ref1 = mngr1.data['references'][0]
                 npt.assert_array_equal(
-                    getattr(scipy_stats, model_name)(*ref.model_args).cdf(dist_domain),
-                    ref.model.cdf(dist_domain))
+                    getattr(scipy_stats, model_name)(*ref1.model_args).cdf(dist_domain),
+                    ref1.model.cdf(dist_domain))
 
                 # Check model distribs match between themselves
-                ref2 = mngr.data['references'][0]
+                ref2 = mngr2.data['references'][0]
                 npt.assert_array_equal(
                     ref2.model.cdf(dist_domain),
-                    ref.model.cdf(dist_domain))
+                    ref1.model.cdf(dist_domain))
+
+                # Check rank_runtime method.
+                [npt.assert_array_equal(_x, _y) for _x, _y in zip(
+                    (True, ref2.model.cdf(dist_domain)),
+                    mngr2.rank_runtime(test_node_id, dist_domain)
+                )]
+                [npt.assert_array_equal(_x, _y) for _x, _y in zip(
+                    mngr1.rank_runtime(test_node_id, dist_domain),
+                    mngr2.rank_runtime(test_node_id, dist_domain)
+                )]

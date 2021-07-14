@@ -1,69 +1,72 @@
 # -*- coding: utf-8 -*-
-import pytest
-import os
-import sys
-from py.path import local
-from pglib.filelock import FileLock
-import pglib.validation as pgval
-import pglib.profiling as pgprof
+from collections import namedtuple
+from .utils import Manager
 import py
+import pglib.profiling as pgprof
+from py.path import local
+import pytest
 
 
-# def pytest_addoption(parser):
-#     group = parser.getgroup('marcabanca')
-#     group.addoption(
-#         '--foo',
-#         action='store',
-#         dest='dest_foo',
-#         default='2021',
-#         help='Set the value for the fixture "bar".'
-#     )
+def pytest_configure(config):
+    """
+    pytest_configure hook for marcabanca plugin
+    """
 
-#     parser.addini('HELLO', 'Dummy pytest.ini setting')
+    config.pluginmanager.register(PytestMarcabanca(config))
 
-
-# @pytest.fixture
-# def bar(request):
-#     return request.config.option.dest_foo
 
 def pytest_addoption(parser):
+    """
+    Defines pytest options for marcabanca plugin.
+    """
     group = parser.getgroup('marcabanca')
     group.addoption(
         '--mb-root', default=None, type=local,
-        help='Directory where marcabanca benchmarking results are stored (<tests root>/marcabanca/ by default).'),
+        help='Directory where marcabanca reference models are stored (<tests root>/marcabanca/ by default).'),
     group.addoption(
-        '--mb-tests', default='all', choices=['all', 'decorated'],
-        help="['all' | 'decorated'] Run benchmarking tests on 'all' tests or only those 'decorated' with an @marcabanca decorator.",)
+        '--mb-which-tests', default='all', choices=['all', 'none', 'decorated'],
+        help="[Default 'all'] Benchmark 'all' tests, only those 'decorated' with a @benchmark decorator, or 'none'. Tests decorated with @skip_benchmark are always ignored. If --mb-create-references='none', tests with no existing reference will be skipped.",)
+    group.addoption(
+        '--mb-create-references', default='none', choices=['none', 'overwrite', 'missing'],
+        help="[Default 'none'] Creates references for the tests run (and satisfying the --mb-tests option). Use 'missing' to create only missing references, 'overwrite' to further overwrite existing references, or 'none' to create no new references.")
+    group.addoption(
+        '--mb-num-runs', type=int, default=10,
+        help="Number of runs to carry out for each test to create a reference model.")
+    group.addoption(
+        '--mb-model-name', default='gamma',
+        help="One of the models in scipy.stats.")
 
 
-class Profiling(object):
-    """Profiling plugin for pytest."""
-    svg = False
-    svg_name = None
-    profs = []
-    combined = None
+Result = namedtuple('Result', ('test_node_id', 'rank'))
 
-    def __init__(self, root, which_tests):
-        self.root = root
-        self.filelock = None
-        self.which_tests = pgval.check_option('which_tests', which_tests, ['all', 'decorated'])
+
+class PytestMarcabanca(object):
+
+    def __init__(self, config):
+        self.root = config.getvalue('mb_root')
+        self.which_tests = config.getvalue('mb_which_tests')
+        self.create_references = config.getvalue('mb_create_references')
+        self.num_runs = config.getvalue('mb_num_runs')
+        self.model_name = config.getvalue('mb_model_name')
+        self.data_manager = None
+        self.results = []
 
     # JSON file paths.
     @property
-    def runtimes_path(self):
-        return self.root.join('runtimes.json')
+    def references_path(self):
+        return self.root.join('references.json')
 
     @property
-    def machines_path(self):
-        return self.root.join('machines.json')
+    def machine_configs_path(self):
+        return self.root.join('machine_configs.json')
 
     @property
-    def python_envs_path(self):
-        return self.root.join('python_envs.json')
+    def python_configs_path(self):
+        return self.root.join('python_configs.json')
 
     @property
     def filelock_path(self):
-        return self.machines_path
+        return self.machine_configs_path
 
     @classmethod
     def _default_root(cls, session):
@@ -79,43 +82,45 @@ class Profiling(object):
         except py.error.EEXIST:
             pass
 
-        # Create json files if necessary.
-        self.filelock = FileLock(self.filelock_path)
-        self.filelock.acquire(create=True)
-        for path in [self.runtimes_path,
-                     self.machines_path,
-                     self.python_envs_path]:
-            with open(path, 'a+'):
-                pass
+        # Initialize data manager.
+        self.data_manager = Manager(
+            machine_configs_path=self.machine_configs_path,
+            python_configs_path=self.python_configs_path,
+            references_path=self.references_path)
 
     def pytest_sessionfinish(self, session, exitstatus):
-        self.filelock.release()
-
-    def get_configuration(self):
-        with open(self.machines_path, 'rt+') as fo:
-            pass
+        if (self.create_references in ['overwrite', 'missing'] and
+                self.data_manager.created_new_reference):
+            self.data_manager.write()
 
     @pytest.hookimpl()
     def pytest_runtest_call(self, item):
 
+        # Run test
+        with pgprof.Time() as test_timer:
+            item.runtest()
+
+        # Compute runtime rank
         if self.which_tests == 'all' or (
                 self.which_tests == 'decorated' and hasattr(item.function, 'marcabanca')):
 
-            # Execute test.
-            for k in range(10):
-                with pgprof.Time() as timer:
-                    item.runtest()
+            # Create reference
+            if (self.create_references == 'overwrite' or
+                (self.create_references == 'missing' and
+                 not self.data_manager.check_reference_exists(item.nodeid))):
 
-        else:
-            item.runtest()
+                # Assemble runtimes test
+                runtimes = []
+                for k in range(self.num_runs):
+                    with pgprof.Time() as timer:
+                        item.runtest()
+                    runtimes.append(timer.elapsed)
 
+                # Create reference model
+                self.data_manager.create_reference(item.nodeid, runtimes, self.model_name)
 
-def pytest_configure(config):
-    """pytest_configure hook for profiling plugin"""
-    mb_root = config.getvalue('mb_root')
-
-    # if profile_enable:
-    # config.pluginmanager.register(Profiling(config.getvalue('profile_svg'),
-    #                                        config.getvalue('pstats_dir')))
-    config.pluginmanager.register(
-        Profiling(config.getvalue('mb_root'), config.getvalue('mb_tests')))
+            # Compute runtime rank
+            rank = self.data_manager.rank_runtime(item.nodeid, test_timer.elapsed)
+            self.results.append(Result(
+                test_node_id=item.nodeid,
+                rank=rank))
