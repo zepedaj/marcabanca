@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import numpy as np
 from collections import namedtuple
 from .utils import Manager
 import py
@@ -38,7 +39,8 @@ def pytest_addoption(parser):
         help="One of the models in scipy.stats.")
 
 
-Result = namedtuple('Result', ('test_node_id', 'exact', 'rank'))
+Result = namedtuple('Result', ('test_node_id', 'exact', 'rank',
+                    'runtime', 'model_mean', 'empirical_mean'))
 
 
 class PytestMarcabanca(object):
@@ -70,21 +72,30 @@ class PytestMarcabanca(object):
         self.data_manager = Manager(self.root)
 
     def pytest_sessionfinish(self, session, exitstatus):
+        #
         if (self.create_references in ['overwrite', 'missing'] and
                 self.data_manager.created_new_reference):
             self.data_manager.write()
-            self.print_results()
+        #
+        self.print_results()
 
     def print_results(self):
         from rich.console import Console
         from rich.table import Table
-        table = Table('Marcabanca benchmarking results')
+        table = Table(title='Marcabanca benchmarking results')
         table.add_column('Test', justify='left')
-        table.add_column('Time rank', justify='right')
+        table.add_column('Rank', justify='right')
+        table.add_column('Time', justify='right')
+        table.add_column('Model Mean', justify='right')
+        table.add_column('Emprc Mean', justify='right')
         results = sorted(self.results, key=lambda r: r.rank, reverse=True)
         for _result in results:
             table.add_row(
-                _result.test_node_id, f'{_result.rank:.2%}',
+                _result.test_node_id,
+                f'{_result.rank:.2%}',
+                f'{_result.runtime:.1g}',
+                f'{_result.model_mean:.1g}',
+                f'{_result.empirical_mean:.1g}',
                 style=('red' if _result.rank > 0.8 else 'green'))
         console = Console()
         console.print('\n', table)
@@ -116,9 +127,15 @@ class PytestMarcabanca(object):
                 self.data_manager.create_reference(item.nodeid, runtimes, self.model_name)
 
             # Compute runtime rank
-            exact, rank = self.data_manager.rank_runtime(item.nodeid, test_timer.elapsed)
+            exact, rank = self.data_manager.rank_runtime(
+                item.nodeid, test_timer.elapsed)
+            exact, ref_model = self.data_manager.get_reference_model(item.nodeid)
+
             if rank is not None:
                 self.results.append(Result(
                     test_node_id=item.nodeid,
                     rank=rank,
-                    exact=exact))
+                    exact=exact,
+                    runtime=test_timer.elapsed,
+                    model_mean=ref_model.model.stats('m'),
+                    empirical_mean=np.mean(ref_model.runtimes)))

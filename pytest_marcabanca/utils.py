@@ -86,6 +86,17 @@ class Manager:
         :param runtime: The test duration as a positive float.
         :return: The rank :math:`\in [0,1]` (i.e., the CDF value evaluated at the given runtime) representing the percentage of the runtime population with a value that is lower than the specified runtime.
         """
+        exact_match, reference = self.get_reference_model(test_node_id)
+        if reference:
+            return exact_match, reference.rank_runtime(runtime)
+        else:
+            return None, None
+
+    def get_reference_model(self, test_node_id):
+        """
+        Get an exact or approximate reference model. An approximate model is one for which the environment (machine and python configurations) is not the same as the caller's.
+        """
+
         reference_id = self.build_reference_id(test_node_id)
 
         if (posn_reference := ReferenceModel.find(reference_id, self.data['references'])):
@@ -97,7 +108,7 @@ class Manager:
         else:
             return None, None
 
-        return exact_match, reference.rank_runtime(runtime)
+        return exact_match, reference
 
     def check_reference_exists(self, test_node_id):
         """
