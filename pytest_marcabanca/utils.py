@@ -1,15 +1,15 @@
 import uuid
+from pglib.rentemp import RenTempFiles
+import os.path as osp
 import abc
 from contextlib import ExitStack
 from pglib.validation import checked_get_single
-import numpy as np
 import scipy.stats as scipy_stats
-import warnings
 from pglib.serializer.abstract_type_serializer import (
     AbstractTypeSerializer as _AbstractTypeSerializer)
 from pglib.serializer import Serializer as _Serializer
 from pglib.filelock import FileLock
-from typing import Iterable, List, Union
+from typing import List
 import sys
 import subprocess as subp
 from cpuinfo import get_cpu_info
@@ -34,7 +34,7 @@ class Manager:
     Loads all data upon initialization and re-writes it with any updates upon calling :meth:`write`.
     """
 
-    def __init__(self, machine_configs_path, python_configs_path, references_path, create=True):
+    def __init__(self, root, create=True):
         """
         Loads all machine configurations, python configurations and references from disk.
 
@@ -43,24 +43,24 @@ class Manager:
         """
 
         self.serializer = _Serializer()
+        self.created_new_reference = False
 
-        # Create the files if they do not exist.
-        if create:
-            with ExitStack() as stack:
-                [stack.enter_context(open(_path, 'a')) for _path in
-                 [machine_configs_path, python_configs_path, references_path]]
+        # Make sure the directory exist.
+        if not osp.isdir(root):
+            raise Exception(f'The specified root directory {root} does not exist.')
 
-        # Load all data from the files.
+        # Load all data from the data files.
         serializer = _Serializer()
+        self.root = root
         self.paths = {
-            'machine_configs': machine_configs_path,
-            'python_configs': python_configs_path,
-            'references': references_path
+            'lock': osp.join(root, '.lock.tmp'),
+            'machine_configs': osp.join(root, 'machine_configs.json'),
+            'python_configs': osp.join(root, 'python_configs.json'),
+            'references': osp.join(root, 'references.json')
         }
         self.data = {
-            'machine_configs': serializer.load_safe(machine_configs_path)[0] or [],
-            'python_configs': serializer.load_safe(python_configs_path)[0] or [],
-            'references': serializer.load_safe(references_path)[0] or []}
+            _key: serializer.load_safe(self.paths[_key])[0] or []
+            for _key in set(self.paths)-{'lock'}}
 
         # Get this environment's configuration and ensure it exists in the data dictionary.
         this_machine_config = MachineConfiguration()
@@ -91,27 +91,29 @@ class Manager:
         """
         reference_id = self.build_reference_id(test_node_id)
 
-        if (reference := ReferenceModel.find(reference_id, self.data['references'])):
-            exact = True
+        if (posn_reference := ReferenceModel.find(reference_id, self.data['references'])):
+            exact_match = True
+            reference = posn_reference[1]
         elif (references := [_x for _x in self.data['references'] if _x.reference_id['test_node_id'] == test_node_id]):
-            exact = False
+            exact_match = False
             reference = references[0]
         else:
             return None, None
 
-        return exact, reference.compare(runtime)
+        return exact_match, reference.rank_runtime(runtime)
 
-    def check_exists(self, test_node_id):
+    def check_reference_exists(self, test_node_id):
         """
         Returns the found reference or None.
         """
         reference_id = self.build_reference_id(test_node_id)
-        return ReferenceModel.find(reference_id, self.data['reference_ids'])
+        return ReferenceModel.find(reference_id, self.data['references'])
 
     def create_reference(self, test_node_id, runtimes, model_name='gamma'):
         """
         Creates a reference model for the specified test and the current environment.
         """
+        self.created_new_reference = True
         #
         reference_id = self.build_reference_id(test_node_id)
         #
@@ -126,11 +128,18 @@ class Manager:
 
     def write(self):
         """
-        Writes all machine configurations, python configurations and references to disk.
+        Write to disk all machine configurations, python configurations and references.
         """
-        with ExitStack() as stack:
-            [stack.enter_context(FileLock(_x)) for _x in self.paths.values()]
-            [self.serializer.dump(self.data[key], self.paths[key]) for key in self.data]
+        # Attempts to be atomic, and protected from other competing processes.
+        with FileLock(self.paths['lock']).with_acquire(create=True):
+            data_keys = list(set(self.data) - {'lock'})
+            data = [self.data[_key] for _key in data_keys]
+            paths = [self.paths[_key] for _key in data_keys]
+            with RenTempFiles(paths, overwrite=True) as tmp_paths:
+                # TODO: Possibility of corrupt data if a failure happens during the final move
+                # operation in RenTempFiles' __exit__ method. Notify of problem with an exception.
+                [self.serializer.dump(_data, _tmp_path.name)
+                 for _data, _tmp_path in zip(data, tmp_paths)]
 
 
 class ReferenceModel(_AbstractTypeSerializer):
@@ -172,7 +181,7 @@ class ReferenceModel(_AbstractTypeSerializer):
         else:
             return None
 
-    def compare(self, x):
+    def rank_runtime(self, x):
         """
         Returns the rank of x in the fitted distribution (i.e., the percentage of the population with a value lower than x as per the fitted distribution).
         """

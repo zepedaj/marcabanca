@@ -44,7 +44,7 @@ setup(
     ],
     entry_points={
         'pytest11': [
-            'marcabanca = pytest_marcabanca',
+            'marcabanca = pytest_marcabanca.pytest_marcabanca',
         ],
     },
 )
