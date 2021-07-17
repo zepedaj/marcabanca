@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import os
+import os.path as osp
 import numpy as np
 from collections import namedtuple
 from .utils import Manager
@@ -6,7 +8,11 @@ import py
 import pglib.profiling as pgprof
 from py.path import local
 import pytest
-import rich
+
+
+class TestIsSlow(Exception):
+    def __init__(self, rank, rltv):
+        super().__init__(f'Avg. rank={rank}; Avg. rltv. runtime={rltv}')
 
 
 def pytest_configure(config):
@@ -23,35 +29,47 @@ def pytest_addoption(parser):
     """
     group = parser.getgroup('marcabanca')
     group.addoption(
-        '--mb-root', default=None, type=local,
-        help='Directory where marcabanca reference models are stored (<tests root>/marcabanca/ by default).'),
+        '--mb', default='all', choices=['all', 'none', 'decorated'],
+        help="['none'] Benchmark 'all' tests, only those 'decorated' with a @benchmark decorator, or 'none'. Tests decorated with @skip_benchmark are always ignored. If --mb-create-references='none' (the default), tests with no existing reference will be skipped.",)
     group.addoption(
-        '--mb-which-tests', default='all', choices=['all', 'none', 'decorated'],
-        help="[Default 'all'] Benchmark 'all' tests, only those 'decorated' with a @benchmark decorator, or 'none'. Tests decorated with @skip_benchmark are always ignored. If --mb-create-references='none', tests with no existing reference will be skipped.",)
+        '--mb-num-test-runs', type=int, default=10,
+        help="[10] Number of runs to carry out at test time to estimate average runtime.")
+    group.addoption(
+        '--mb-rank-thresh', type=float, default=0.9,
+        help="[0.9] Error threshold applied to average runtime rank (as a float in [0,1] range).")
+    group.addoption(
+        '--mb-rltv-thresh', type=float, default=float('inf'),
+        help="[None] Error threshold applied to average relative runtime (e.g., 1.5 to fail with tests 50% slower on avg. than the ref).")
     group.addoption(
         '--mb-create-references', default='none', choices=['none', 'overwrite', 'missing'],
-        help="[Default 'none'] Creates references for the tests run (and satisfying the --mb-tests option). Use 'missing' to create only missing references, 'overwrite' to further overwrite existing references, or 'none' to create no new references.")
+        help="['none'] Creates references for the tests run (those satisfying the --mb option). Use 'missing' to create only missing references, 'overwrite' to further overwrite existing references, or 'none' to create no new references (the default).")
     group.addoption(
-        '--mb-num-runs', type=int, default=10,
-        help="Number of runs to carry out for each test to create a reference model.")
+        '--mb-num-ref-runs', type=int, default=30,
+        help="[30] Number of runs to carry out for each test when creating a reference model.")
+    group.addoption(
+        '--mb-root', default=None, type=local,
+        help='[tests root] Directory where marcabanca reference models are stored (<tests root>/marcabanca/ by default).')
     group.addoption(
         '--mb-model-name', default='gamma',
         help="One of the models in scipy.stats.")
 
 
 Result = namedtuple('Result', ('test_node_id', 'exact', 'rank',
-                    'runtime', 'model_mean', 'empirical_mean'))
+                               'runtime', 'model_mean', 'empirical_mean'))
 
 
 class PytestMarcabanca(object):
 
     def __init__(self, config):
+        self.which_tests = config.getvalue('mb')
         self.root = config.getvalue('mb_root')
-        self.which_tests = config.getvalue('mb_which_tests')
         self.create_references = config.getvalue('mb_create_references')
-        self.num_runs = config.getvalue('mb_num_runs')
+        self.num_ref_runs = config.getvalue('mb_num_ref_runs')
+        self.num_test_runs = config.getvalue('mb_num_test_runs')
         self.model_name = config.getvalue('mb_model_name')
         self.data_manager = None
+        self.rank_thresh = config.getvalue('mb_rank_thresh')
+        self.rltv_thresh = config.getvalue('mb_rltv_thresh')
         self.results = []
 
     @classmethod
@@ -77,65 +95,87 @@ class PytestMarcabanca(object):
                 self.data_manager.created_new_reference):
             self.data_manager.write()
         #
-        self.print_results()
+        if self.which_tests != 'none':
+            self.print_results(session.config.rootdir)
 
-    def print_results(self):
+    def print_results(self, rootdir):
         from rich.console import Console
         from rich.table import Table
         table = Table(title='Marcabanca benchmarking results')
         table.add_column('Test', justify='left')
         table.add_column('Rank', justify='right')
+        table.add_column('Rltv', justify='right')
         table.add_column('Time', justify='right')
-        table.add_column('Model Mean', justify='right')
-        table.add_column('Emprc Mean', justify='right')
+        # table.add_column('Model Mean', justify='right')
+        # table.add_column('Emprc Mean', justify='right')
         results = sorted(self.results, key=lambda r: r.rank, reverse=True)
+
+        rel_cwd = osp.relpath(rootdir, os.getcwd())
         for _result in results:
             table.add_row(
-                _result.test_node_id,
+                osp.join(rel_cwd, _result.test_node_id),
                 f'{_result.rank:.2%}',
-                f'{_result.runtime:.1g}',
-                f'{_result.model_mean:.1g}',
-                f'{_result.empirical_mean:.1g}',
-                style=('red' if _result.rank > 0.8 else 'green'))
+                f'{_result.runtime / _result.model_mean:1.1f}X',
+                f'{_result.runtime:.3g}',
+                # f'{_result.model_mean:.3g}',
+                # f'{_result.empirical_mean:.3g}',
+                style=('red' if
+                       (_result.rank > self.rank_thresh or _result.runtime > self.rltv_thresh)
+                       else 'green'))
         console = Console()
         console.print('\n', table)
+        if len(results) == 0:
+            console.print(
+                '(No benchmark references found. You can create them using option --mb-create-references=missing.)')
 
     @pytest.hookimpl()
     def pytest_runtest_call(self, item):
 
-        # Run test
-        with pgprof.Time() as test_timer:
-            item.runtest()
+        # The first run loads all modules, avoiding overhead when measuring run times.
+        item.runtest()
 
-        # Compute runtime rank
-        if self.which_tests == 'all' or (
-                self.which_tests == 'decorated' and hasattr(item.function, 'marcabanca')):
+        if self.which_tests != 'none':
 
-            # Create reference
-            if (self.create_references == 'overwrite' or
-                (self.create_references == 'missing' and
-                 not self.data_manager.check_reference_exists(item.nodeid))):
+            # Use the whole nodeid so you can copy/paste it to run the test
+            test_node_id = item.nodeid
 
-                # Assemble runtimes test
-                runtimes = []
-                for k in range(self.num_runs):
-                    with pgprof.Time() as timer:
-                        item.runtest()
-                    runtimes.append(timer.elapsed)
-
-                # Create reference model
-                self.data_manager.create_reference(item.nodeid, runtimes, self.model_name)
+            # Test runs
+            test_runtimes = []
+            for k in range(self.num_test_runs):
+                with pgprof.Time() as test_timer:
+                    item.runtest()
+                test_runtimes.append(test_timer.elapsed)
+            mean_test_time = np.mean(test_runtimes)
 
             # Compute runtime rank
-            exact, rank = self.data_manager.rank_runtime(
-                item.nodeid, test_timer.elapsed)
-            exact, ref_model = self.data_manager.get_reference_model(item.nodeid)
+            if self.which_tests == 'all' or (
+                    self.which_tests == 'decorated' and hasattr(item.function, 'marcabanca')):
 
-            if rank is not None:
-                self.results.append(Result(
-                    test_node_id=item.nodeid,
-                    rank=rank,
-                    exact=exact,
-                    runtime=test_timer.elapsed,
-                    model_mean=ref_model.model.stats('m'),
-                    empirical_mean=np.mean(ref_model.runtimes)))
+                # Create reference
+                if (self.create_references == 'overwrite' or
+                    (self.create_references == 'missing' and
+                     not self.data_manager.check_reference_exists(test_node_id))):
+
+                    # Assemble ref_runtimes test
+                    ref_runtimes = []
+                    for k in range(self.num_ref_runs):
+                        with pgprof.Time() as timer:
+                            item.runtest()
+                        ref_runtimes.append(timer.elapsed)
+
+                    # Create reference model
+                    self.data_manager.create_reference(test_node_id, ref_runtimes, self.model_name)
+
+                # Compute runtime rank
+                exact, rank = self.data_manager.rank_runtime(
+                    test_node_id, mean_test_time)
+                exact, ref_model = self.data_manager.get_reference_model(test_node_id)
+
+                if rank is not None:
+                    self.results.append(Result(
+                        test_node_id=test_node_id,
+                        rank=rank,
+                        exact=exact,
+                        runtime=mean_test_time,
+                        model_mean=ref_model.model.stats('m'),
+                        empirical_mean=np.mean(ref_model.runtimes)))
