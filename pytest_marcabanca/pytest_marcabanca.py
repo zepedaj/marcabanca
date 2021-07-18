@@ -34,10 +34,10 @@ def pytest_addoption(parser):
         help="['none'] Benchmark 'all' tests, only those 'decorated' with a @benchmark decorator, or 'none'. Tests decorated with @skip_benchmark are always ignored. If --mb-create-references='none' (the default), tests with no existing reference will be skipped.",)
     group.addoption(
         '--mb-num-test-runs', type=int, default=10,
-        help="[10] Number of runs to carry out at test time to estimate average runtime.")
+        help="[2] Number of runs to carry out at test time to estimate average runtime.")
     group.addoption(
-        '--mb-rank-thresh', type=float, default=float('inf'),
-        help="[inf] Min threshold applied to average runtime rank (as a float in [0,1]  range or 'inf').")
+        '--mb-rank-thresh', type=float, default=0.99,
+        help="[0.99] Min threshold applied to average runtime rank (as a float in [0,1]  range or 'inf').")
     group.addoption(
         '--mb-rltv-thresh', type=float, default=1.5,
         help="[1.5] Error threshold applied to average relative runtime (e.g., use 1.3 to fail with tests 30% slower on avg. than the ref).")
@@ -46,7 +46,7 @@ def pytest_addoption(parser):
         help="['none'] Creates references for the tests run (those satisfying the --mb option). Use 'missing' to create only missing references, 'overwrite' to further overwrite existing references, or 'none' to create no new references (the default).")
     group.addoption(
         '--mb-num-ref-runs', type=int, default=30,
-        help="[30] Number of runs to carry out for each test when creating a reference model.")
+        help="[10] Number of runs to carry out for each test when creating a reference model.")
     group.addoption(
         '--mb-root', default=None, type=local,
         help='[tests root] Directory where marcabanca reference models are stored (<tests root>/marcabanca/ by default).')
@@ -56,7 +56,7 @@ def pytest_addoption(parser):
 
 
 Result = namedtuple('Result', ('test_node_id', 'exact', 'rank',
-                               'runtime', 'model_mean', 'empirical_mean'))
+                               'runtime', 'rltv_runtime', 'model_mean', 'empirical_mean'))
 
 
 class PytestMarcabanca(object):
@@ -75,7 +75,7 @@ class PytestMarcabanca(object):
 
     @classmethod
     def _default_root(cls, session):
-        return session.config.rootdir.join('marcabanca/')
+        return session.config.rootdir.join('.marcabanca/')
 
     # Hooks
     def pytest_sessionstart(self, session):
@@ -116,13 +116,14 @@ class PytestMarcabanca(object):
             table.add_row(
                 osp.join(rel_cwd, _result.test_node_id),
                 f'{_result.rank:.2%}',
-                f'{_result.runtime / _result.model_mean:1.1f}X',
+                f'{_result.rltv_runtime:1.1f}X',
                 pghm.secs(_result.runtime),
                 # f'{_result.model_mean:.3g}',
                 # f'{_result.empirical_mean:.3g}',
                 style=('red' if
-                       (_result.rank > self.rank_thresh or _result.runtime > self.rltv_thresh)
+                       _result.rank > self.rank_thresh or _result.rltv_runtime > self.rltv_thresh
                        else 'green'))
+
         console = Console()
         console.print('\n', table)
         if len(results) == 0:
@@ -174,10 +175,14 @@ class PytestMarcabanca(object):
                 #             if _x <= _runtime)) / (len(ref_model.runtimes) * (len(test_runtimes)))
 
                 if rank is not None:
-                    self.results.append(Result(
-                        test_node_id=test_node_id,
-                        rank=rank,
-                        exact=exact,
-                        runtime=mean_test_time,
-                        model_mean=ref_model.model.stats('m'),
-                        empirical_mean=np.mean(ref_model.runtimes)))
+                    self.results.append(
+                        Result(
+                            test_node_id=test_node_id,
+                            rank=rank,
+                            exact=exact,
+                            runtime=mean_test_time,
+                            rltv_runtime=(mean_test_time / ref_model.model.stats('m')),
+                            model_mean=ref_model.model.stats('m'),
+                            empirical_mean=np.mean(ref_model.runtimes)
+                        )
+                    )

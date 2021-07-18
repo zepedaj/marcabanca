@@ -306,6 +306,25 @@ class MachineConfiguration(_AbstractConfiguration):
     """
 
     INCLUDE_MACHINE_ID_INFO = True
+    cpuinfo_keys = [
+        "cpuinfo_version",
+        "arch",
+        "bits",
+        "count",
+        "vendor_id_raw",
+        "brand_raw",
+        "hz_advertised",
+        "stepping",
+        "model",
+        "family",
+        "flags",
+        "l3_cache_size",
+        "l2_cache_size",
+        "l1_data_cache_size",
+        "l1_instruction_cache_size",
+        "l2_cache_line_size",
+        "l2_cache_associativity"
+    ]
 
     def __init__(self, *args, with_id=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -313,7 +332,7 @@ class MachineConfiguration(_AbstractConfiguration):
     @classmethod
     def _get_this_specs(cls):
         out = {
-            'cpuinfo': get_cpu_info(),
+            'cpuinfo': {key: val for key, val in get_cpu_info().items() if key in cls.cpuinfo_keys},
             'memory': psutil.virtual_memory().total
         }
         if cls.INCLUDE_MACHINE_ID_INFO:
