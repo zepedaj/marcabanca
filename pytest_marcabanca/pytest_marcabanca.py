@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from pglib import humanize as pghm
 import os
 import os.path as osp
 import numpy as np
@@ -29,17 +30,17 @@ def pytest_addoption(parser):
     """
     group = parser.getgroup('marcabanca')
     group.addoption(
-        '--mb', default='all', choices=['all', 'none', 'decorated'],
+        '--mb', default='none', choices=['all', 'none', 'decorated'],
         help="['none'] Benchmark 'all' tests, only those 'decorated' with a @benchmark decorator, or 'none'. Tests decorated with @skip_benchmark are always ignored. If --mb-create-references='none' (the default), tests with no existing reference will be skipped.",)
     group.addoption(
         '--mb-num-test-runs', type=int, default=10,
         help="[10] Number of runs to carry out at test time to estimate average runtime.")
     group.addoption(
-        '--mb-rank-thresh', type=float, default=0.9,
-        help="[0.9] Error threshold applied to average runtime rank (as a float in [0,1] range).")
+        '--mb-rank-thresh', type=float, default=0.95,
+        help="[inf] Min threshold applied to average runtime rank (as a float in [0,1]  range or 'inf').")
     group.addoption(
         '--mb-rltv-thresh', type=float, default=float('inf'),
-        help="[None] Error threshold applied to average relative runtime (e.g., 1.5 to fail with tests 50% slower on avg. than the ref).")
+        help="[1.3] Error threshold applied to average relative runtime (e.g., use 1.3 to fail with tests 30% slower on avg. than the ref).")
     group.addoption(
         '--mb-create-references', default='none', choices=['none', 'overwrite', 'missing'],
         help="['none'] Creates references for the tests run (those satisfying the --mb option). Use 'missing' to create only missing references, 'overwrite' to further overwrite existing references, or 'none' to create no new references (the default).")
@@ -116,7 +117,7 @@ class PytestMarcabanca(object):
                 osp.join(rel_cwd, _result.test_node_id),
                 f'{_result.rank:.2%}',
                 f'{_result.runtime / _result.model_mean:1.1f}X',
-                f'{_result.runtime:.3g}',
+                pghm.secs(_result.runtime),
                 # f'{_result.model_mean:.3g}',
                 # f'{_result.empirical_mean:.3g}',
                 style=('red' if
@@ -126,7 +127,7 @@ class PytestMarcabanca(object):
         console.print('\n', table)
         if len(results) == 0:
             console.print(
-                '(No benchmark references found. You can create them using option --mb-create-references=missing.)')
+                "(No benchmark references found. You can create them using option '--mb-create-references=missing'.)")
 
     @pytest.hookimpl()
     def pytest_runtest_call(self, item):
@@ -167,9 +168,10 @@ class PytestMarcabanca(object):
                     self.data_manager.create_reference(test_node_id, ref_runtimes, self.model_name)
 
                 # Compute runtime rank
-                exact, rank = self.data_manager.rank_runtime(
-                    test_node_id, mean_test_time)
                 exact, ref_model = self.data_manager.get_reference_model(test_node_id)
+                rank = np.mean([ref_model.rank_runtime(_runtime) for _runtime in test_runtimes])
+                # rank = sum((1 for _runtime in test_runtimes for _x in ref_model.runtimes
+                #             if _x <= _runtime)) / (len(ref_model.runtimes) * (len(test_runtimes)))
 
                 if rank is not None:
                     self.results.append(Result(
