@@ -36,11 +36,11 @@ def pytest_addoption(parser):
         '--mb-num-test-runs', type=int, default=10,
         help="[10] Number of runs to carry out at test time to estimate average runtime.")
     group.addoption(
-        '--mb-rank-thresh', type=float, default=0.95,
+        '--mb-rank-thresh', type=float, default=float('inf'),
         help="[inf] Min threshold applied to average runtime rank (as a float in [0,1]  range or 'inf').")
     group.addoption(
-        '--mb-rltv-thresh', type=float, default=float('inf'),
-        help="[1.3] Error threshold applied to average relative runtime (e.g., use 1.3 to fail with tests 30% slower on avg. than the ref).")
+        '--mb-rltv-thresh', type=float, default=1.5,
+        help="[1.5] Error threshold applied to average relative runtime (e.g., use 1.3 to fail with tests 30% slower on avg. than the ref).")
     group.addoption(
         '--mb-create-references', default='none', choices=['none', 'overwrite', 'missing'],
         help="['none'] Creates references for the tests run (those satisfying the --mb option). Use 'missing' to create only missing references, 'overwrite' to further overwrite existing references, or 'none' to create no new references (the default).")
