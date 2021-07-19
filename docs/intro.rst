@@ -6,3 +6,18 @@ Upon testing, each test's runtime is compared to the gamma distribution for the 
 
 By default, all tests compared against their original runtime to detect runtime regressions automatically. Upon running these tests the first time, the reference runtimes are stored in the configuration files.
 
+For repeatability, one should ensure the exact same environment is used. Marcabanca tries to find the exact configuration. If it is not found, it will find the closest configuration and compare to that configuration.
+
+Test functions and methods can be explicitly marked as benchmark functions by decorating them with  :func:`marcabanca.benchmark(True)` (``True`` is the default and can be ommitted) or explicitly excluded from bencharmking using :func:`marcabanca.benchmark(False)`.
+
+Tests that are slower than a few tens of milli seconds will not be repeatable and should be excluded (e.g., by decorating them with :func:`marcabanca.benchmark(False)`)
+
+.. todo::
+   * Raise exception when timing test does not pass.
+   * Do statistical analysis to ensure errors are raised only in statistically significant situations.
+   * CLI tool to analyze / modify contents of JSON files, including:
+     * Number of referenes per test.
+     * Difference between environment configurations.
+     * Way to find the closest environment.
+   * Make it possible to run tests/reference construction in parallel as much as possible.
+   * Save references as soon as they are built.
