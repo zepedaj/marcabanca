@@ -174,7 +174,7 @@ class PytestMarcabanca(object):
                 # Create reference model
                 self.data_manager.create_reference(test_node_id, ref_runtimes, self.model_name)
 
-            elif self.data_manager.check_reference_exists(test_node_id):
+            elif not self.data_manager.check_reference_exists(test_node_id):
                 # A reference did not exist and was not created.
                 self.missing_references.append(test_node_id)
                 return
