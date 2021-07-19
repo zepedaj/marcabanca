@@ -124,11 +124,11 @@ class PytestMarcabanca(object):
             ColumnSpec(
                 'Rltv', 'right',
                 lambda _result: _result.rltv_runtime,
-                lambda _value: f'{_value:1.1f}'),
+                lambda _value: f'{_value:1.1f}X'),
             ColumnSpec(
-                'Time', 'right',
+                'Abs', 'right',
                 lambda _result: _result.runtime,
-                lambda _value: pghm.secs(_value))]
+                lambda _value: pghm.secs(_value, align=True))]
 
         def row_style(_result):
             return ('red' if
