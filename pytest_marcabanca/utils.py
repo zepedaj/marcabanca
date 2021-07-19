@@ -112,10 +112,10 @@ class Manager:
 
     def check_reference_exists(self, test_node_id):
         """
-        Returns the found reference or None.
+        Returns the found (index,reference) tuple or None.
         """
         reference_id = self.build_reference_id(test_node_id)
-        return ReferenceModel.find(reference_id, self.data['references'])[1]
+        return ReferenceModel.find(reference_id, self.data['references'])
 
     def create_reference(self, test_node_id, runtimes, model_name='gamma'):
         """
