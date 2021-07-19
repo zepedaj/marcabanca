@@ -115,7 +115,7 @@ class Manager:
         Returns the found reference or None.
         """
         reference_id = self.build_reference_id(test_node_id)
-        return ReferenceModel.find(reference_id, self.data['references'])
+        return ReferenceModel.find(reference_id, self.data['references'])[1]
 
     def create_reference(self, test_node_id, runtimes, model_name='gamma'):
         """
