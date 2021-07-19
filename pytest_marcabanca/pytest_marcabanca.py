@@ -104,29 +104,64 @@ class PytestMarcabanca(object):
     def print_results(self, rootdir):
         from rich.console import Console
         from rich.table import Table
-        table = Table(title='Marcabanca benchmarking results')
-        table.add_column('Test', justify='left')
-        table.add_column('Rank', justify='right')
-        table.add_column('Rltv', justify='right')
-        table.add_column('Time', justify='right')
-        results = sorted(self.results, key=lambda r: r.rank, reverse=True)
+
+        # Specify table structure
+        class ColumnSpec(
+            namedtuple(
+                'ColumnSpec', ['header', 'justify', 'get_value', 'apply_format'])):
+            def get_formatted(self, _result): return self.apply_format(self.get_value(_result))
 
         rel_cwd = osp.relpath(rootdir, os.getcwd())
-        for _result in results:
-            table.add_row(
-                osp.join(rel_cwd, _result.test_node_id),
-                f'{_result.rank:.2%}',
-                f'{_result.rltv_runtime:1.1f}X',
-                pghm.secs(_result.runtime),
-                style=('red' if
-                       _result.rank > self.rank_thresh or _result.rltv_runtime > self.rltv_thresh
-                       else 'green'))
+        columns = [
+            ColumnSpec(
+                'Test', 'left',
+                lambda _result: _result.test_node_id,
+                lambda _value: osp.join(rel_cwd, _value)),
+            ColumnSpec(
+                'Rank', 'right',
+                lambda _result: _result.rank,
+                lambda _value: f'{_value:.2%}'),
+            ColumnSpec(
+                'Rltv', 'right',
+                lambda _result: _result.rltv_runtime,
+                lambda _value: f'{_value:1.1f}'),
+            ColumnSpec(
+                'Time', 'right',
+                lambda _result: _result.runtime,
+                lambda _value: pghm.secs(_value))]
 
+        def row_style(_result):
+            return ('red' if
+                    _result.rank > self.rank_thresh or _result.rltv_runtime > self.rltv_thresh
+                    else 'green')
+
+        # Create table structure
+        table = Table(title='Marcabanca benchmarking results')
+        for _col in columns:
+            table.add_column(_col.header, justify=_col.justify)
+
+        # Add table content
+        results = sorted(self.results, key=lambda r: r.rank, reverse=True)
+        for _result in results:
+            table.add_row(*[_col.get_formatted(_result)
+                          for _col in columns], style=row_style(_result))
+
+        # Add averages row
+        table.add_row(
+            '(Averages)',
+            *[_col.apply_format(
+                np.mean(
+                    [_col.get_value(_result) for _result in results]
+                ))
+              for _col in columns[1:]])
+
+        # Print table
         console = Console()
         console.print("\n")
         if results:
             console.print(table)
 
+        # Print warnings
         if self.missing_references:
             console.print(
                 f"MARCABANCA: {len(self.missing_references)} marcabanca benchmark references were missing. You can create them using option '--mb-create-references=missing'.",
