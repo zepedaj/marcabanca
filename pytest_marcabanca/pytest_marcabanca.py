@@ -174,14 +174,19 @@ class PytestMarcabanca(object):
         inexact = sum(not _x.exact for _x in results)
         if inexact:
             console.print(
-                f'MARCABANCA: {inexact}/{len(results)} tests ran with a mis-matching reference.',
+                f'MARCABANCA: {inexact}/{len(results)} tests ran with a mis-matched reference.',
                 style='red')
 
-    @pytest.hookimpl()
     def pytest_runtest_call(self, item):
+        orig_runtest = item.runtest
+        item.runtest = lambda: self._item_runtest_wrapper(
+            item, orig_runtest)
+
+    def _item_runtest_wrapper(self, item, item_runtest):
 
         # The first run loads all modules, avoiding overhead when measuring run times.
-        item.runtest()
+        # TODO: Convert this into an option.
+        item_runtest()
 
         is_decorated = hasattr(item.function, '_marcabanca')
         do_benchmark = is_decorated and item.function._marcabanca['benchmark']
@@ -203,7 +208,7 @@ class PytestMarcabanca(object):
                 ref_runtimes = []
                 for k in range(self.num_ref_runs):
                     with pgprof.Time() as timer:
-                        item.runtest()
+                        item_runtest()
                     ref_runtimes.append(timer.elapsed)
 
                 # Create reference model
@@ -218,7 +223,7 @@ class PytestMarcabanca(object):
             test_runtimes = []
             for k in range(self.num_test_runs):
                 with pgprof.Time() as test_timer:
-                    item.runtest()
+                    item_runtest()
                 test_runtimes.append(test_timer.elapsed)
             mean_test_time = np.mean(test_runtimes)
 
