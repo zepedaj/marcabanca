@@ -11,16 +11,3 @@ For repeatability, one should ensure the exact same environment is used. Marcaba
 Test functions and methods can be explicitly marked as benchmark functions by decorating them with  :func:`marcabanca.benchmark(True)` (``True`` is the default and can be ommitted) or explicitly excluded from bencharmking using :func:`marcabanca.benchmark(False)`.
 
 Tests that are slower than a few tens of milli seconds will not be repeatable and should be excluded (e.g., by decorating them with :func:`marcabanca.benchmark(False)`)
-
-.. todo::
-   * When choosing a non-exact model, attempt to choose one from the first machine first, and then attempt to minimize the python env difference. Display what differences there are. This should mitigate the situation where a new python module was installed or an existing one was upgraded.
-   * Give the option to specify the reference machine/environment pair programatically.
-     * CLI tool to analyze / modify contents of JSON files, including:
-       * Number of referenes per test.
-       * Difference between environment configurations.
-       * Configuration of current environment.
-       * Ability to cleanup from the references (or rename) orphan time references (e.g., following a code refactoring).
-   * Raise exception when timing test does not pass.
-   * Do statistical analysis to ensure errors are raised only in statistically significant situations.   
-   * Make it possible to run tests/reference construction in parallel as much as possible.
-   * Save references as soon as they are built.   
