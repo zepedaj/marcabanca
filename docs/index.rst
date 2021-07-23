@@ -12,6 +12,7 @@ Contents:
    :maxdepth: 2
 
    content/specifications
+   content/pitfalls
    content/modules
    content/todo
 
