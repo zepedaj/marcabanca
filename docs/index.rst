@@ -11,6 +11,10 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
+   content/specifications
+   content/modules
+   content/todo
+
 
 
 Indices and tables
