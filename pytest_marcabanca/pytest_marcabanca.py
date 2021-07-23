@@ -10,6 +10,7 @@ import py
 import pglib.profiling as pgprof
 from py.path import local
 import pytest
+from pglib.unittest.utils import is_skipped
 
 
 class TestIsSlow(Exception):
@@ -178,6 +179,11 @@ class PytestMarcabanca(object):
                 style='red')
 
     def pytest_runtest_call(self, item):
+        """
+        .. todo:: Ensure that the reference generation is skipped when using either unittest and pytest skip decorators.
+        """
+        if is_skipped(item):
+            return
         orig_runtest = item.runtest
         item.runtest = lambda: self._item_runtest_wrapper(
             item, orig_runtest)
