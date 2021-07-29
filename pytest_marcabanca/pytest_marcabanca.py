@@ -58,7 +58,8 @@ def pytest_addoption(parser):
 
 
 Result = namedtuple('Result', ('test_node_id', 'exact', 'rank',
-                               'runtime', 'rltv_runtime', 'model_mean', 'empirical_mean'))
+                               'runtime', 'rltv_runtime', 'model_mean', 'empirical_mean',
+                               'ref_model'))
 
 
 class PytestMarcabanca(object):
@@ -105,11 +106,12 @@ class PytestMarcabanca(object):
     def print_results(self, rootdir):
         from rich.console import Console
         from rich.table import Table
+        from rich.text import Text
 
         # Specify table structure
         class ColumnSpec(
             namedtuple(
-                'ColumnSpec', ['header', 'justify', 'get_value', 'apply_format'])):
+                'ColumnSpec', ['header', 'justify', 'get_value', 'apply_format', 'summary'])):
             def get_formatted(self, _result): return self.apply_format(self.get_value(_result))
 
         rel_cwd = osp.relpath(rootdir, os.getcwd())
@@ -117,19 +119,35 @@ class PytestMarcabanca(object):
             ColumnSpec(
                 'Test', 'left',
                 lambda _result: _result.test_node_id,
-                lambda _value: osp.join(rel_cwd, _value)),
+                lambda _value: osp.join(rel_cwd, _value),
+                np.mean),
             ColumnSpec(
                 'Rank', 'right',
                 lambda _result: _result.rank,
-                lambda _value: f'{_value:.2%}'),
+                lambda _value: f'{_value:.2%}',
+                np.mean),
             ColumnSpec(
                 'Rltv', 'right',
                 lambda _result: _result.rltv_runtime,
-                lambda _value: f'{_value:1.1f}X'),
+                lambda _value: f'{_value:1.1f}X',
+                np.mean),
             ColumnSpec(
                 'Abs', 'right',
                 lambda _result: _result.runtime,
-                lambda _value: pghm.secs(_value, align=True))]
+                lambda _value: pghm.secs(_value, align=True),
+                np.mean),
+            ColumnSpec(
+                'Machine', 'right',
+                lambda _result: _result.ref_model.reference_id['machine_config_id'],
+                clip_id := (lambda _value: _value[:7]),
+                lambda _x: ''
+            ),
+            ColumnSpec(
+                'Python', 'right',
+                lambda _result: _result.ref_model.reference_id['python_config_id'],
+                clip_id,
+                lambda _x: ''
+            )]
 
         def row_style(_result):
             return ('red' if
@@ -151,7 +169,7 @@ class PytestMarcabanca(object):
         table.add_row(
             '(Averages)',
             *[_col.apply_format(
-                np.mean(
+                _col.summary(
                     [_col.get_value(_result) for _result in results]
                 ))
               for _col in columns[1:]])
@@ -246,6 +264,7 @@ class PytestMarcabanca(object):
                         runtime=mean_test_time,
                         rltv_runtime=(mean_test_time / ref_model.model.stats('m')),
                         model_mean=ref_model.model.stats('m'),
-                        empirical_mean=np.mean(ref_model.runtimes)
+                        empirical_mean=np.mean(ref_model.runtimes),
+                        ref_model=ref_model
                     )
                 )

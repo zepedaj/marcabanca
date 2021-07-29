@@ -16,6 +16,7 @@ Next features
   * Save references as soon as they are built.
 * When creating references, add message at end of report indicating the number of new references created, and the total number of tests to run.
 * Save the last report in a temporary file and allow viewing, re-sorting and copying of this last report. Fail gracefully without breaking the test run if unable to create the temporary file.
+* Display in color coded columns whether the same machine and python env are being compared against, as well as the machine / python env config.
 
 
 
