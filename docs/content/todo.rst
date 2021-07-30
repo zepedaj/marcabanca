@@ -3,6 +3,7 @@ To-do's
 
 Next features
 ---------------
+* Better code organization: Change MachineConfig, PythonConfig and ReferenceModel 'config_id' and 'reference_id' attributes to 'uuid'.
 * When choosing a non-exact model, attempt to choose one from the first machine first, and then attempt to minimize the python env difference. Display what differences there are. This should mitigate the situation where a new python module was installed or an existing one was upgraded.
   * Give the option to specify the reference machine/environment pair programatically.
     * CLI tool to analyze / modify contents of JSON files, including:

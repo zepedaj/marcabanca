@@ -17,6 +17,7 @@ setup(
     maintainer_email='jazs.pro@gmail.com', license='MIT',
     url='https://github.com/zepedaj/pytest-marcabanca',
     description='A pytest plugin for runtime benchmarking', long_description=read('README.rst'),
+    scripts=['marcabanca/bin/marcabanca'],
     py_modules=['pytest_marcabanca'],
     python_requires='>=3.5',
     install_requires=['pytest>=3.5.0', 'py-cpuinfo==8.0.0', 'psutil==5.8.0', 'scipy==1.7.0',
