@@ -116,14 +116,13 @@ class Manager:
 
         if (posn_reference := self.find_exact_reference_model(reference_id)):
             exact_match = True
-            reference = posn_reference[1]
-        elif (reference := self.find_approx_reference_model(
+        elif (posn_reference := self.find_approx_reference_model(
                 reference_id, same_machine=True, same_python_version=False)):
             exact_match = False
         else:
             return None, None
 
-        return exact_match, reference
+        return exact_match, posn_reference[1]
 
     def check_reference_exists(self, test_node_id):
         """
