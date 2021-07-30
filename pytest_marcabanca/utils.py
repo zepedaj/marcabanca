@@ -1,4 +1,5 @@
 import uuid
+import jsondiff as jd
 import os
 from pglib.rentemp import RenTempFiles
 import os.path as osp
@@ -10,7 +11,7 @@ from pglib.serializer.abstract_type_serializer import (
     AbstractTypeSerializer as _AbstractTypeSerializer)
 from pglib.serializer import Serializer as _Serializer
 from pglib.filelock import FileLock
-from typing import List
+from typing import List, Union, Optional
 import sys
 import subprocess as subp
 from cpuinfo import get_cpu_info
@@ -35,12 +36,12 @@ class Manager:
     Loads all data upon initialization and re-writes it with any updates upon calling :meth:`write`.
     """
 
-    def __init__(self, root, create=True):
+    def __init__(self, root, add_this_env=True):
         """
         Loads all machine configurations, python configurations and references from disk.
 
-        :param *_path: Paths to json files containing the machine configurations, the python configurations and the references, respectively.
-        :param create: If the paths do not exist, create them.
+        :param root: Root directory to json files containing the machine configurations, the python configurations and the references.
+        :param add_this_env: Whether to add the current environment to the list of in-memory data.
         """
 
         self.serializer = _Serializer()
@@ -59,19 +60,31 @@ class Manager:
             _key: serializer.load_safe(self.paths[_key])[0] or []
             for _key in set(self.paths)-{'lock'}}
 
-        # Get this environment's configuration and ensure it exists in the data dictionary.
+        # Get this environment's configuration
         this_machine_config = MachineConfiguration()
         this_python_config = PythonConfiguration()
 
-        if this_machine_config not in self.data['machine_configs']:
-            self.data['machine_configs'].append(this_machine_config)
-        self.this_machine_config = checked_get_single(
-            [_x for _x in self.data['machine_configs'] if _x == this_machine_config])
+        # Ensure this env exists in the data dictionary if requested.
+        if add_this_env:
+            if this_machine_config not in self.data['machine_configs']:
+                self.data['machine_configs'].append(this_machine_config)
+            if this_python_config not in self.data['python_configs']:
+                self.data['python_configs'].append(this_python_config)
 
-        if this_python_config not in self.data['python_configs']:
-            self.data['python_configs'].append(this_python_config)
-        self.this_python_config = checked_get_single(
-            [_x for _x in self.data['python_configs'] if _x == this_python_config])
+        # Update this env's configs to get the right uuid.
+        matched_this_machine_configs = [
+            _x for _x in self.data['machine_configs'] if _x == this_machine_config]
+        self.this_machine_config = (
+            checked_get_single(matched_this_machine_configs)
+            if matched_this_machine_configs
+            else this_machine_config)
+
+        matched_this_python_configs = [
+            _x for _x in self.data['python_configs'] if _x == this_python_config]
+        self.this_python_config = (
+            checked_get_single(matched_this_python_configs)
+            if matched_this_python_configs
+            else this_python_config)
 
     def build_reference_id(self, test_node_id):
         return {'machine_config_id': self.this_machine_config.config_id,
@@ -84,7 +97,7 @@ class Manager:
 
         :param test_node_id: The pytest test identifier (e.g., 'my.module::MyClass::my_method')
         :param runtime: The test duration as a positive float.
-        :return: The rank :math:`\in [0,1]` (i.e., the CDF value evaluated at the given runtime) representing the percentage of the runtime population with a value that is lower than the specified runtime.
+        :return: Whether an exact match was obtained, and the rank :math:`\in [0,1]` (i.e., the CDF value evaluated at the given runtime) representing the percentage of the runtime population with a value that is lower than the specified runtime.
         """
         exact_match, reference = self.get_reference_model(test_node_id)
         if reference:
@@ -95,16 +108,18 @@ class Manager:
     def get_reference_model(self, test_node_id):
         """
         Get an exact or approximate reference model. An approximate model is one for which the environment (machine and python configurations) is not the same as the caller's.
+
+        :param test_node_id: Pytest test node name, e.g., 'test_module.test_submodule.py::MyTestClass::my_test_method'
         """
 
         reference_id = self.build_reference_id(test_node_id)
 
-        if (posn_reference := ReferenceModel.find(reference_id, self.data['references'])):
+        if (posn_reference := self.find_exact_reference_model(reference_id)):
             exact_match = True
             reference = posn_reference[1]
-        elif (references := [_x for _x in self.data['references'] if _x.reference_id['test_node_id'] == test_node_id]):
+        elif (reference := self.find_approx_reference_model(
+                reference_id, same_machine=True, same_python_version=False)):
             exact_match = False
-            reference = references[0]
         else:
             return None, None
 
@@ -115,7 +130,7 @@ class Manager:
         Returns the found (index,reference) tuple or None.
         """
         reference_id = self.build_reference_id(test_node_id)
-        return ReferenceModel.find(reference_id, self.data['references'])
+        return self.find_exact_reference_model(reference_id)
 
     def create_reference(self, test_node_id, runtimes, model_name='gamma'):
         """
@@ -128,11 +143,15 @@ class Manager:
         reference = ReferenceModel(reference_id, model_name=model_name)
         reference.fit(runtimes)
         #
-        posn_reference = ReferenceModel.find(reference_id, self.data['references'])
+        posn_reference = self.find_exact_reference_model(reference_id)
         if posn_reference:
+            existed = True
             self.data['references'][posn_reference[0]] = reference
         else:
+            existed = False
             self.data['references'].append(reference)
+
+        return existed, reference_id
 
     def write(self):
         """
@@ -156,6 +175,82 @@ class Manager:
                 [self.serializer.dump(_data, _tmp_path.name, indent=4)
                  for _data, _tmp_path in zip(data, tmp_paths)]
 
+    def find_machine_config(
+            self, machine_config_id: Union[str, 'ReferenceModel']
+    ) -> Optional['MachineConfiguration']:
+        if isinstance(machine_config_id, ReferenceModel):
+            machine_config_id = machine_config_id.reference_id['machine_config_id']
+        elif not isinstance(machine_config_id, str):
+            raise TypeError(
+                f'Need a {str} or {ReferenceModel} but received a {type(machine_config_id)}.')
+        return checked_get_single(_out) if (
+            _out := find(
+                machine_config_id,
+                self.data['machine_configs'],
+                'config_id')) else None
+
+    def find_python_config(
+            self, python_config_id: Union[str, 'ReferenceModel']
+    ) -> Optional['PythonConfiguration']:
+        if isinstance(python_config_id, ReferenceModel):
+            python_config_id = python_config_id.reference_id['python_config_id']
+        elif not isinstance(python_config_id, str):
+            raise TypeError(
+                f'Need a {str} or {ReferenceModel} but received a {type(python_config_id)}.')
+
+        return checked_get_single(_out) if (
+            _out := find(
+                python_config_id,
+                self.data['python_configs'],
+                'config_id')) else None
+
+    def find_exact_reference_model(self, reference_id):
+        """
+        Same as :func:`find`, but ensures at most one reference exists. Returns a :class:`Reference` object and its position.
+
+        :return: ``(position, reference)`` or ``None``.
+        """
+        if (reference := find(reference_id, self.data['references'], 'reference_id')):
+            return checked_get_single(
+                reference,
+                msg=f'Expected 1 but found {{count}} references matching id {reference_id}.')
+        else:
+            return None
+
+    def find_approx_reference_model(
+            self, reference_id, same_machine=True, same_python_version=False):
+        """
+        Finds the reference from the same machine (by default) and python version (optionally) containing the greatest number of exactly-matching (including version) python modules.
+
+        :return: ``(position, reference)`` or ``None``.
+        """
+
+        # Prune reference list to same test node id.
+        references = [(_posn, _ref) for _posn, _ref in enumerate(self.data['references'])
+                      if _ref.reference_id['test_node_id'] == reference_id['test_node_id']]
+        if same_machine:
+            # Prune reference list to same machine.
+            references = [
+                (_posn, _ref) for (_posn, _ref) in references if
+                _ref.reference_id['machine_config_id'] == self.this_machine_config.config_id]
+        if same_python_version:
+            # Prune reference list to same python version.
+            references = [
+                (_posn, _ref) for (_posn, _ref) in references if
+                _ref.reference_id['specs']['python'] == self.this_python_config.specs['python']]
+
+        if references:
+            # Get reference id with highest number of matching modules.
+            return max(
+                references,
+                key=(
+                    lambda _posn_ref:
+                    len(set(self.this_python_config.specs['modules']).intersection(
+                        self.find_python_config(_posn_ref[1])[1].specs['modules']))
+                ))
+        else:
+            return None
+
 
 class ReferenceModel(_AbstractTypeSerializer):
     """
@@ -164,7 +259,7 @@ class ReferenceModel(_AbstractTypeSerializer):
 
     def __init__(self, reference_id, model_name='gamma'):
         """
-        :param reference_id: An arbitrary identifier.
+        :param reference_id: A reference identifier built using :meth:`Manager.build_reference_id`.
         :param model_name: Any of the distributions in :mod:`scipy.stats` (e.g., 'gamma', 'norm', 'gengamma'). (The default is 'gamma'.)
         """
         #
@@ -182,20 +277,6 @@ class ReferenceModel(_AbstractTypeSerializer):
         # Convert to list to make json file less verbose.
         self.model_args = list(self.model_type.fit(runtimes))
         self.model = self.model_type(*self.model_args)
-
-    @classmethod
-    def find(self, reference_id, reference_list):
-        """
-        Same as :func:`find`, but ensures at most one reference exists. Returns a :class:`Reference` object and its position.
-
-        :return: (reference, position) or None
-        """
-        if (reference := find(reference_id, reference_list, 'reference_id')):
-            return checked_get_single(
-                reference,
-                msg=f'Expected 1 but found {{count}} references matching id {reference_id}.')
-        else:
-            return None
 
     def rank_runtime(self, x):
         """
@@ -255,6 +336,9 @@ class PythonModule(_AbstractTypeSerializer):
     def _from_serializable(cls, data):
         return cls(**data)
 
+    def __str__(self):
+        return f'{self.package} {self.version}'
+
 
 class _AbstractConfiguration(_AbstractTypeSerializer, abc.ABC):
     def __init__(self, config_id=None, specs=None):
@@ -283,21 +367,43 @@ class _AbstractConfiguration(_AbstractTypeSerializer, abc.ABC):
     def _generate_new_id(cls):
         return token_hex(16)
 
+    @abc.abstractmethod
+    def for_display(self, as_str=True):
+        """
+        Returns a version of the object for display.
+        """
+        pass
+
+    def diff(self, reference, as_str=True):
+        """
+        Returns the diff relative to another object.
+        """
+        this = self.for_display(False)
+        that = reference.for_display(False)
+        obj = jd.diff(this, that, syntax='explicit')
+        return str(obj) if as_str else obj
+
 
 class PythonConfiguration(_AbstractConfiguration):
 
     @classmethod
     def _get_this_specs(cls):
         return {'python': sys.version,
-                'modules': [
+                'modules': {
                     PythonModule(*re.split(r'\s+', _x))
                     for _x in subp.check_output(
-                        ['pip', 'list'], text=True).strip().split('\n')[2:]]}
+                        ['pip', 'list'], text=True).strip().split('\n')[2:]}}
 
     def __eq__(self, other: 'PythonConfiguration'):
         return (
             self.specs['python'] == other.specs['python'] and
             set(self.specs['modules']) == set(other.specs['modules']))
+
+    def for_display(self, as_str=True):
+        assert set(self.specs.keys()) == {'python', 'modules'}, 'Unexpected specs format.'
+        out = {'python': self.specs['python'],
+               'modules': {_mdl.package: _mdl.version for _mdl in self.specs['modules']}}
+        return str(out) if as_str else out
 
 
 class MachineConfiguration(_AbstractConfiguration):
@@ -341,6 +447,14 @@ class MachineConfiguration(_AbstractConfiguration):
                 'mac_address': cls.get_mac_address()})
 
         return out
+
+    def for_display(self, as_str=True):
+        valid_keys = (
+            (['host', 'mac_address'] if self.INCLUDE_MACHINE_ID_INFO else []) +
+            ['cpuinfo', 'memory'])
+        assert set(self.specs.keys()) == set(valid_keys), 'Unexpected specs format.'
+        obj = {_key: self.specs[_key] for _key in valid_keys}
+        return str(obj) if as_str else obj
 
     @staticmethod
     def get_mac_address():

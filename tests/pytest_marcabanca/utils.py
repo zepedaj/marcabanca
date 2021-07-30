@@ -1,8 +1,8 @@
 import pytest_marcabanca.utils as mdl
+from pglib.unittest.utils import swapattr
 import scipy.stats as scipy_stats
 import numpy.testing as npt
 import numpy as np
-import os.path as osp
 from unittest import TestCase
 from pglib.serializer import Serializer
 from tempfile import TemporaryDirectory
@@ -43,7 +43,7 @@ class TestPythonConfiguration(TestCase):
         pc1 = mdl.PythonConfiguration()
         pc2 = mdl.PythonConfiguration()
         self.assertEqual(pc1, pc2)
-        pc1.specs['modules'][0].version = pc1.specs['modules'][0].version+'_different'
+        next(iter(pc1.specs['modules'])).version += '_different'
         self.assertNotEqual(pc1, pc2)
 
 
@@ -112,3 +112,65 @@ class TestManager(TestCase):
                     mngr1.rank_runtime(test_node_id, dist_domain),
                     mngr2.rank_runtime(test_node_id, dist_domain)
                 )]
+
+    def test_find_exact_and_approx(self):
+        with get_references_manager() as mngr1:
+            existed, reference_id = mngr1.create_reference(
+                test_node_id := 'my.module::MyClass::my_method',
+                runtimes1 := np.linspace(0, 1.0, 10))
+            self.assertFalse(existed)
+            for _ref in [
+                    mngr1.find_exact_reference_model(reference_id)[1],
+                    mngr1.find_approx_reference_model(reference_id)[1],
+                    mngr1.get_reference_model(reference_id['test_node_id'])[1]]:
+                self.assertEqual(_ref.reference_id, reference_id)
+
+            new_python_config = mdl.PythonConfiguration()
+            next(iter(new_python_config.specs['modules'])).version += '_abc'
+
+            new_machine_config = mdl.MachineConfiguration()
+            new_machine_config.specs['cpuinfo'][
+                mdl.MachineConfiguration.cpuinfo_keys[0]] += '_abc'
+
+            # Check existing ref is overwritten
+            self.assertEqual(len(mngr1.data['references']), 1)
+            existed, reference_id__new = mngr1.create_reference(
+                test_node_id := 'my.module::MyClass::my_method',
+                runtimes2 := np.linspace(0, 1.0, 20))
+            self.assertTrue(existed)
+            self.assertEqual(reference_id__new, reference_id)
+            npt.assert_array_equal(
+                runtimes2, mngr1.find_exact_reference_model(reference_id)[1].runtimes)
+            for _x in ['machine_config_id', 'test_node_id', 'python_config_id']:
+                self.assertEqual(reference_id__new[_x], reference_id[_x])
+
+            # Test find_approx.
+            reference_id__new_py = dict(reference_id)
+            reference_id__new_py['python_config_id'] = new_python_config.config_id
+            self.assertNotEqual(reference_id__new_py, reference_id)
+            self.assertIsNone(mngr1.find_exact_reference_model(reference_id__new_py))
+            pos, approx_reference = mngr1.find_approx_reference_model(reference_id__new_py)
+            self.assertEqual(approx_reference.reference_id, reference_id)
+            self.assertEqual(
+                approx_reference,
+                mngr1.get_reference_model(reference_id['test_node_id'])[1])
+
+            # Check new ref created when python config changes.
+            with swapattr(mngr1, 'this_python_config', new_python_config):
+                mngr1.data['python_configs'].append(new_python_config)
+                existed, reference_id__new_py = mngr1.create_reference(
+                    test_node_id := 'my.module::MyClass::my_method',
+                    np.linspace(0, 1.0, 10))
+                self.assertNotEqual(reference_id__new_py, reference_id)
+                self.assertEqual(len(mngr1.data['references']), 2)
+                self.assertFalse(existed)
+                for _x in ['machine_config_id', 'test_node_id']:
+                    self.assertEqual(reference_id__new_py[_x], reference_id[_x])
+                for _x in ['python_config_id']:
+                    self.assertNotEqual(reference_id__new_py[_x], reference_id[_x])
+
+                for _ref in [
+                        mngr1.find_exact_reference_model(reference_id__new_py)[1],
+                        mngr1.find_approx_reference_model(reference_id__new_py)[1],
+                        mngr1.get_reference_model(reference_id__new_py['test_node_id'])[1]]:
+                    self.assertEqual(_ref.reference_id, reference_id__new_py)
