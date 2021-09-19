@@ -294,6 +294,7 @@ autoclass_content = 'both'
 autodoc_default_options = {
     'member-order': 'bysource',
     'members': True,
-    'special-members': '__call__,__getitem__,__len__'
+    'special-members': '__call__,__getitem__,__len__',
+    'ignore-module-all': True
 }
 autosummary_generate = True
