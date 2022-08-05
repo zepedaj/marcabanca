@@ -8,7 +8,8 @@ from contextlib import ExitStack
 from pglib.validation import checked_get_single
 import scipy.stats as scipy_stats
 from pglib.serializer.abstract_type_serializer import (
-    AbstractTypeSerializer as _AbstractTypeSerializer)
+    AbstractTypeSerializer as _AbstractTypeSerializer,
+)
 from pglib.serializer import Serializer as _Serializer
 from pglib.filelock import FileLock
 from typing import List, Union, Optional
@@ -27,8 +28,11 @@ def find(obj_id, obj_list: List, id_attr_name):
     Finds the object with the specified id in a list of objects.
     :return: Returns a list of 2-tuples containing the position in the list and object for all matching objects.
     """
-    return [(_k, _obj) for _k, _obj in enumerate(obj_list)
-            if getattr(_obj, id_attr_name) == obj_id]
+    return [
+        (_k, _obj)
+        for _k, _obj in enumerate(obj_list)
+        if getattr(_obj, id_attr_name) == obj_id
+    ]
 
 
 class Manager:
@@ -51,14 +55,15 @@ class Manager:
         serializer = _Serializer()
         self.root = root
         self.paths = {
-            'lock': osp.join(root, '.lock.tmp'),
-            'machine_configs': osp.join(root, 'machine_configs.json'),
-            'python_configs': osp.join(root, 'python_configs.json'),
-            'references': osp.join(root, 'references.json')
+            "lock": osp.join(root, ".lock.tmp"),
+            "machine_configs": osp.join(root, "machine_configs.json"),
+            "python_configs": osp.join(root, "python_configs.json"),
+            "references": osp.join(root, "references.json"),
         }
         self.data = {
             _key: serializer.load_safe(self.paths[_key])[0] or []
-            for _key in set(self.paths)-{'lock'}}
+            for _key in set(self.paths) - {"lock"}
+        }
 
         # Get this environment's configuration
         this_machine_config = MachineConfiguration()
@@ -66,30 +71,36 @@ class Manager:
 
         # Ensure this env exists in the data dictionary if requested.
         if add_this_env:
-            if this_machine_config not in self.data['machine_configs']:
-                self.data['machine_configs'].append(this_machine_config)
-            if this_python_config not in self.data['python_configs']:
-                self.data['python_configs'].append(this_python_config)
+            if this_machine_config not in self.data["machine_configs"]:
+                self.data["machine_configs"].append(this_machine_config)
+            if this_python_config not in self.data["python_configs"]:
+                self.data["python_configs"].append(this_python_config)
 
         # Update this env's configs to get the right uuid.
         matched_this_machine_configs = [
-            _x for _x in self.data['machine_configs'] if _x == this_machine_config]
+            _x for _x in self.data["machine_configs"] if _x == this_machine_config
+        ]
         self.this_machine_config = (
             checked_get_single(matched_this_machine_configs)
             if matched_this_machine_configs
-            else this_machine_config)
+            else this_machine_config
+        )
 
         matched_this_python_configs = [
-            _x for _x in self.data['python_configs'] if _x == this_python_config]
+            _x for _x in self.data["python_configs"] if _x == this_python_config
+        ]
         self.this_python_config = (
             checked_get_single(matched_this_python_configs)
             if matched_this_python_configs
-            else this_python_config)
+            else this_python_config
+        )
 
     def build_reference_id(self, test_node_id):
-        return {'machine_config_id': self.this_machine_config.config_id,
-                'python_config_id': self.this_python_config.config_id,
-                'test_node_id': test_node_id}
+        return {
+            "machine_config_id": self.this_machine_config.config_id,
+            "python_config_id": self.this_python_config.config_id,
+            "test_node_id": test_node_id,
+        }
 
     def rank_runtime(self, test_node_id, runtime):
         r"""
@@ -114,10 +125,11 @@ class Manager:
 
         reference_id = self.build_reference_id(test_node_id)
 
-        if (posn_reference := self.find_exact_reference_model(reference_id)):
+        if posn_reference := self.find_exact_reference_model(reference_id):
             exact_match = True
-        elif (posn_reference := self.find_approx_reference_model(
-                reference_id, same_machine=True, same_python_version=False)):
+        elif posn_reference := self.find_approx_reference_model(
+            reference_id, same_machine=True, same_python_version=False
+        ):
             exact_match = False
         else:
             return None, None
@@ -131,7 +143,7 @@ class Manager:
         reference_id = self.build_reference_id(test_node_id)
         return self.find_exact_reference_model(reference_id)
 
-    def create_reference(self, test_node_id, runtimes, model_name='gamma'):
+    def create_reference(self, test_node_id, runtimes, model_name="gamma"):
         """
         Creates a reference model for the specified test and the current environment.
         """
@@ -145,10 +157,10 @@ class Manager:
         posn_reference = self.find_exact_reference_model(reference_id)
         if posn_reference:
             existed = True
-            self.data['references'][posn_reference[0]] = reference
+            self.data["references"][posn_reference[0]] = reference
         else:
             existed = False
-            self.data['references'].append(reference)
+            self.data["references"].append(reference)
 
         return existed, reference_id
 
@@ -164,44 +176,54 @@ class Manager:
             pass
 
         # Attempts to be atomic, and protected from other competing processes.
-        with FileLock(self.paths['lock']).with_acquire(create=True):
-            data_keys = list(set(self.data) - {'lock'})
+        with FileLock(self.paths["lock"]).with_acquire(create=True):
+            data_keys = list(set(self.data) - {"lock"})
             data = [self.data[_key] for _key in data_keys]
             paths = [self.paths[_key] for _key in data_keys]
             with RenTempFiles(paths, overwrite=True) as tmp_paths:
                 # TODO: Possibility of corrupt data if a failure happens during the final move
                 # operation in RenTempFiles' __exit__ method. Notify of problem with an exception.
-                [self.serializer.dump(_data, _tmp_path.name, indent=4)
-                 for _data, _tmp_path in zip(data, tmp_paths)]
+                [
+                    self.serializer.dump(_data, _tmp_path.name, indent=4)
+                    for _data, _tmp_path in zip(data, tmp_paths)
+                ]
 
     def find_machine_config(
-            self, machine_config_id: Union[str, 'ReferenceModel']
-    ) -> Optional['MachineConfiguration']:
+        self, machine_config_id: Union[str, "ReferenceModel"]
+    ) -> Optional["MachineConfiguration"]:
         if isinstance(machine_config_id, ReferenceModel):
-            machine_config_id = machine_config_id.reference_id['machine_config_id']
+            machine_config_id = machine_config_id.reference_id["machine_config_id"]
         elif not isinstance(machine_config_id, str):
             raise TypeError(
-                f'Need a {str} or {ReferenceModel} but received a {type(machine_config_id)}.')
-        return checked_get_single(_out) if (
-            _out := find(
-                machine_config_id,
-                self.data['machine_configs'],
-                'config_id')) else None
+                f"Need a {str} or {ReferenceModel} but received a {type(machine_config_id)}."
+            )
+        return (
+            checked_get_single(_out)
+            if (
+                _out := find(
+                    machine_config_id, self.data["machine_configs"], "config_id"
+                )
+            )
+            else None
+        )
 
     def find_python_config(
-            self, python_config_id: Union[str, 'ReferenceModel']
-    ) -> Optional['PythonConfiguration']:
+        self, python_config_id: Union[str, "ReferenceModel"]
+    ) -> Optional["PythonConfiguration"]:
         if isinstance(python_config_id, ReferenceModel):
-            python_config_id = python_config_id.reference_id['python_config_id']
+            python_config_id = python_config_id.reference_id["python_config_id"]
         elif not isinstance(python_config_id, str):
             raise TypeError(
-                f'Need a {str} or {ReferenceModel} but received a {type(python_config_id)}.')
+                f"Need a {str} or {ReferenceModel} but received a {type(python_config_id)}."
+            )
 
-        return checked_get_single(_out) if (
-            _out := find(
-                python_config_id,
-                self.data['python_configs'],
-                'config_id')) else None
+        return (
+            checked_get_single(_out)
+            if (
+                _out := find(python_config_id, self.data["python_configs"], "config_id")
+            )
+            else None
+        )
 
     def find_exact_reference_model(self, reference_id):
         """
@@ -209,15 +231,17 @@ class Manager:
 
         :return: ``(position, reference)`` or ``None``.
         """
-        if (reference := find(reference_id, self.data['references'], 'reference_id')):
+        if reference := find(reference_id, self.data["references"], "reference_id"):
             return checked_get_single(
                 reference,
-                msg=f'Expected 1 but found {{count}} references matching id {reference_id}.')
+                msg=f"Expected 1 but found {{count}} references matching id {reference_id}.",
+            )
         else:
             return None
 
     def find_approx_reference_model(
-            self, reference_id, same_machine=True, same_python_version=False):
+        self, reference_id, same_machine=True, same_python_version=False
+    ):
         """
         Finds the reference from the same machine (by default) and python version (optionally) containing the greatest number of exactly-matching (including version) python modules.
 
@@ -225,28 +249,40 @@ class Manager:
         """
 
         # Prune reference list to same test node id.
-        references = [(_posn, _ref) for _posn, _ref in enumerate(self.data['references'])
-                      if _ref.reference_id['test_node_id'] == reference_id['test_node_id']]
+        references = [
+            (_posn, _ref)
+            for _posn, _ref in enumerate(self.data["references"])
+            if _ref.reference_id["test_node_id"] == reference_id["test_node_id"]
+        ]
         if same_machine:
             # Prune reference list to same machine.
             references = [
-                (_posn, _ref) for (_posn, _ref) in references if
-                _ref.reference_id['machine_config_id'] == self.this_machine_config.config_id]
+                (_posn, _ref)
+                for (_posn, _ref) in references
+                if _ref.reference_id["machine_config_id"]
+                == self.this_machine_config.config_id
+            ]
         if same_python_version:
             # Prune reference list to same python version.
             references = [
-                (_posn, _ref) for (_posn, _ref) in references if
-                _ref.reference_id['specs']['python'] == self.this_python_config.specs['python']]
+                (_posn, _ref)
+                for (_posn, _ref) in references
+                if _ref.reference_id["specs"]["python"]
+                == self.this_python_config.specs["python"]
+            ]
 
         if references:
             # Get reference id with highest number of matching modules.
             return max(
                 references,
                 key=(
-                    lambda _posn_ref:
-                    len(set(self.this_python_config.specs['modules']).intersection(
-                        self.find_python_config(_posn_ref[1])[1].specs['modules']))
-                ))
+                    lambda _posn_ref: len(
+                        set(self.this_python_config.specs["modules"]).intersection(
+                            self.find_python_config(_posn_ref[1])[1].specs["modules"]
+                        )
+                    )
+                ),
+            )
         else:
             return None
 
@@ -256,7 +292,7 @@ class ReferenceModel(_AbstractTypeSerializer):
     Represents runtimes together with a probabilistic model fitted to those runtimes.
     """
 
-    def __init__(self, reference_id, model_name='gamma'):
+    def __init__(self, reference_id, model_name="gamma"):
         """
         :param reference_id: A reference identifier built using :meth:`Manager.build_reference_id`.
         :param model_name: Any of the distributions in :mod:`scipy.stats` (e.g., 'gamma', 'norm', 'gengamma'). (The default is 'gamma'.)
@@ -283,46 +319,47 @@ class ReferenceModel(_AbstractTypeSerializer):
         """
 
         if self.model is None:
-            raise Exception('Cannot compute a cdf because a model has not been fitted.')
+            raise Exception("Cannot compute a cdf because a model has not been fitted.")
         return self.model.cdf(x)
 
     def __eq__(self, obj):
         if self.model is None or obj.model is None:
-            raise Exception('Cannot compare models because one of the models has not been fitted.')
-        return (
-            self.model_name == obj.model_name and
-            self.model_args == obj.model_args)
+            raise Exception(
+                "Cannot compare models because one of the models has not been fitted."
+            )
+        return self.model_name == obj.model_name and self.model_args == obj.model_args
 
     @classmethod
     def _as_serializable(cls, obj):
         if obj.model is None:
-            raise Exception('The model cannot be serialized because it has not been fitted.')
+            raise Exception(
+                "The model cannot be serialized because it has not been fitted."
+            )
         return {
-            'reference_id': obj.reference_id,
-            'model_name': obj.model_name,
-            'runtimes': obj.runtimes,
-            'model_args': obj.model_args}
+            "reference_id": obj.reference_id,
+            "model_name": obj.model_name,
+            "runtimes": obj.runtimes,
+            "model_args": obj.model_args,
+        }
 
     @classmethod
     def _from_serializable(cls, data):
-        obj = cls(data['reference_id'], data['model_name'])
-        obj.runtimes = data['runtimes']
-        obj.model = obj.model_type(*data['model_args'])
-        obj.model_args = data['model_args']
+        obj = cls(data["reference_id"], data["model_name"])
+        obj.runtimes = data["runtimes"]
+        obj.model = obj.model_type(*data["model_args"])
+        obj.model_args = data["model_args"]
         return obj
 
 
 @dataclass
 class PythonModule(_AbstractTypeSerializer):
-    _keys = ['package', 'version', 'location']
+    _keys = ["package", "version", "location"]
     package: str
     version: str
     location: str = None
 
     def __eq__(self, pm):
-        return (
-            self.package == pm.package and
-            self.version == pm.version)
+        return self.package == pm.package and self.version == pm.version
 
     def __hash__(self):
         return hash((self.package, self.version))
@@ -336,7 +373,7 @@ class PythonModule(_AbstractTypeSerializer):
         return cls(**data)
 
     def __str__(self):
-        return f'{self.package} {self.version}'
+        return f"{self.package} {self.version}"
 
 
 class _AbstractConfiguration(_AbstractTypeSerializer, abc.ABC):
@@ -356,11 +393,11 @@ class _AbstractConfiguration(_AbstractTypeSerializer, abc.ABC):
 
     @classmethod
     def _as_serializable(cls, obj):
-        return {'config_id': obj.config_id, 'specs': obj.specs}
+        return {"config_id": obj.config_id, "specs": obj.specs}
 
     @classmethod
     def _from_serializable(cls, data):
-        return cls(config_id=data['config_id'], specs=data['specs'])
+        return cls(config_id=data["config_id"], specs=data["specs"])
 
     @classmethod
     def _generate_new_id(cls):
@@ -379,29 +416,37 @@ class _AbstractConfiguration(_AbstractTypeSerializer, abc.ABC):
         """
         this = self.for_display(False)
         that = reference.for_display(False)
-        obj = jd.diff(this, that, syntax='explicit')
+        obj = jd.diff(this, that, syntax="explicit")
         return str(obj) if as_str else obj
 
 
 class PythonConfiguration(_AbstractConfiguration):
-
     @classmethod
     def _get_this_specs(cls):
-        return {'python': sys.version,
-                'modules': {
-                    PythonModule(*re.split(r'\s+', _x))
-                    for _x in subp.check_output(
-                        ['pip', 'list'], text=True).strip().split('\n')[2:]}}
+        return {
+            "python": sys.version,
+            "modules": {
+                PythonModule(*re.split(r"\s+", _x))
+                for _x in subp.check_output(["pip", "list"], text=True)
+                .strip()
+                .split("\n")[2:]
+            },
+        }
 
-    def __eq__(self, other: 'PythonConfiguration'):
-        return (
-            self.specs['python'] == other.specs['python'] and
-            set(self.specs['modules']) == set(other.specs['modules']))
+    def __eq__(self, other: "PythonConfiguration"):
+        return self.specs["python"] == other.specs["python"] and set(
+            self.specs["modules"]
+        ) == set(other.specs["modules"])
 
     def for_display(self, as_str=True):
-        assert set(self.specs.keys()) == {'python', 'modules'}, 'Unexpected specs format.'
-        out = {'python': self.specs['python'],
-               'modules': {_mdl.package: _mdl.version for _mdl in self.specs['modules']}}
+        assert set(self.specs.keys()) == {
+            "python",
+            "modules",
+        }, "Unexpected specs format."
+        out = {
+            "python": self.specs["python"],
+            "modules": {_mdl.package: _mdl.version for _mdl in self.specs["modules"]},
+        }
         return str(out) if as_str else out
 
 
@@ -428,7 +473,7 @@ class MachineConfiguration(_AbstractConfiguration):
         "l1_data_cache_size",
         "l1_instruction_cache_size",
         "l2_cache_line_size",
-        "l2_cache_associativity"
+        "l2_cache_associativity",
     ]
 
     def __init__(self, *args, with_id=False, **kwargs):
@@ -437,21 +482,23 @@ class MachineConfiguration(_AbstractConfiguration):
     @classmethod
     def _get_this_specs(cls):
         out = {
-            'cpuinfo': {key: val for key, val in get_cpu_info().items() if key in cls.cpuinfo_keys},
-            'memory': psutil.virtual_memory().total
+            "cpuinfo": {
+                key: val
+                for key, val in get_cpu_info().items()
+                if key in cls.cpuinfo_keys
+            },
+            "memory": psutil.virtual_memory().total,
         }
         if cls.INCLUDE_MACHINE_ID_INFO:
-            out.update({
-                'host': platform.node(),
-                'mac_address': cls.get_mac_address()})
+            out.update({"host": platform.node(), "mac_address": cls.get_mac_address()})
 
         return out
 
     def for_display(self, as_str=True):
         valid_keys = (
-            (['host', 'mac_address'] if self.INCLUDE_MACHINE_ID_INFO else []) +
-            ['cpuinfo', 'memory'])
-        assert set(self.specs.keys()) == set(valid_keys), 'Unexpected specs format.'
+            ["host", "mac_address"] if self.INCLUDE_MACHINE_ID_INFO else []
+        ) + ["cpuinfo", "memory"]
+        assert set(self.specs.keys()) == set(valid_keys), "Unexpected specs format."
         obj = {_key: self.specs[_key] for _key in valid_keys}
         return str(obj) if as_str else obj
 
@@ -460,10 +507,11 @@ class MachineConfiguration(_AbstractConfiguration):
         return str(uuid.UUID(int=uuid.getnode()))
 
     def _anonynoums_specs(self):
-        return {_k: _v for _k, _v in self.specs.items()
-                if _k not in ('host', 'mac_address')}
+        return {
+            _k: _v for _k, _v in self.specs.items() if _k not in ("host", "mac_address")
+        }
 
-    def __eq__(self, other: 'MachineConfiguration'):
+    def __eq__(self, other: "MachineConfiguration"):
         """
         Ignores the config_id value.
         """
@@ -473,5 +521,6 @@ class MachineConfiguration(_AbstractConfiguration):
 
 
 # Register type serializers
-_Serializer.default_extension_types.extend([
-    PythonConfiguration, MachineConfiguration, PythonModule, ReferenceModel])
+_Serializer.default_extension_types.extend(
+    [PythonConfiguration, MachineConfiguration, PythonModule, ReferenceModel]
+)

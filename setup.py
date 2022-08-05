@@ -45,5 +45,9 @@ setup(
         "Operating System :: OS Independent",
         "License :: OSI Approved :: MIT License",
     ],
-    entry_points={"pytest11": ["marcabanca = pytest_marcabanca.pytest_marcabanca",],},
+    entry_points={
+        "pytest11": [
+            "marcabanca = pytest_marcabanca.pytest_marcabanca",
+        ],
+    },
 )

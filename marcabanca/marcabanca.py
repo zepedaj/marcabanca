@@ -12,7 +12,7 @@ def benchmark(do_benchmark=True):
 
         # Hacky. Better solution is to return a callable object,
         # but pytest does not seem to bind those correctly.
-        marcabanca_wrapper._marcabanca = {'benchmark': do_benchmark}
+        marcabanca_wrapper._marcabanca = {"benchmark": do_benchmark}
 
         return marcabanca_wrapper
 
