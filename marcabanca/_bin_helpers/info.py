@@ -1,12 +1,12 @@
 from .main import main, root_arg, compute_root
 from collections import namedtuple
-from pglib import validation as pgval
+from jztools import validation as pgval
 import climax as clx
 from pytest_marcabanca.utils import Manager, find
 from rich.table import Table
 from rich.console import Console
 from rich.text import Text
-from pglib.json import as_json_serializable
+from jztools.json import as_json_serializable
 from logging import getLogger
 
 CONSOLE = Console()
@@ -99,9 +99,11 @@ def print_summary(config_type, this_config, configs_list, do_diff):
         {
             "this": ("*" if _config == this_config else ""),
             "uuid": _config.config_id,
-            "specs": ref_config.diff(_config)
-            if (do_diff is not False)
-            else _config.for_display(),
+            "specs": (
+                ref_config.diff(_config)
+                if (do_diff is not False)
+                else _config.for_display()
+            ),
         }
         for _config in configs_list
     ]

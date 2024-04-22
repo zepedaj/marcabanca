@@ -1,17 +1,17 @@
 import uuid
 import jsondiff as jd
 import os
-from pglib.rentemp import RenTempFiles
+from jztools.rentemp import RenTempFiles
 import os.path as osp
 import abc
 from contextlib import ExitStack
-from pglib.validation import checked_get_single
+from jztools.validation import checked_get_single
 import scipy.stats as scipy_stats
-from pglib.serializer.abstract_type_serializer import (
+from jztools.serializer.abstract_type_serializer import (
     AbstractTypeSerializer as _AbstractTypeSerializer,
 )
-from pglib.serializer import Serializer as _Serializer
-from pglib.filelock import FileLock
+from jztools.serializer import Serializer as _Serializer
+from jztools.filelock import FileLock
 from typing import List, Union, Optional
 import sys
 import subprocess as subp

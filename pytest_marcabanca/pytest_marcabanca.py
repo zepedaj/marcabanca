@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 # from marcabanca import MarcabancaWrappedCallable
-from pglib import humanize as pghm
+from jztools import humanize as pghm
 import os
 import os.path as osp
 import numpy as np
 from collections import namedtuple
 from .utils import Manager
 import py
-import pglib.profiling as pgprof
+import jztools.profiling as pgprof
 from py.path import local
 import pytest
-from pglib.unittest.utils import is_skipped
+from jztools.unittest.utils import is_skipped
 
 
 class TestIsSlow(Exception):

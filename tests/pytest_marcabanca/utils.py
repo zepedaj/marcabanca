@@ -1,10 +1,10 @@
 import pytest_marcabanca.utils as mdl
-from pglib.unittest.utils import swapattr
+from jztools.unittest.utils import swapattr
 import scipy.stats as scipy_stats
 import numpy.testing as npt
 import numpy as np
 from unittest import TestCase
-from pglib.serializer import Serializer
+from jztools.serializer import Serializer
 from tempfile import TemporaryDirectory
 from contextlib import contextmanager
 
